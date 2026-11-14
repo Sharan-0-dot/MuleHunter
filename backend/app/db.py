@@ -51,10 +51,16 @@ def init_db():
         listen_seconds INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         summary_source TEXT NOT NULL,
+        llm_status TEXT DEFAULT 'ok',
         llm_latency_ms REAL,
         tts_fallback INTEGER NOT NULL DEFAULT 0
     );
     """)
+
+    try:
+        cur.execute("ALTER TABLE alerts ADD COLUMN llm_status TEXT DEFAULT 'ok';")
+    except sqlite3.OperationalError:
+        pass
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clusters (
@@ -166,6 +172,7 @@ def save_cluster_and_alert(
     llm_latency_ms: Optional[float] = None,
     tts_fallback: bool = False,
     window_txs: Optional[List] = None,
+    llm_status: str = "ok",
 ):
     """
     Atomically persists cluster, alert, and cluster transactions into SQLite.
@@ -212,8 +219,8 @@ def save_cluster_and_alert(
     INSERT OR REPLACE INTO alerts (
         alert_id, cluster_id, level, risk_score, typology,
         accounts_count, total_amount_inr, wav_url, listen_seconds,
-        created_at, summary_source, llm_latency_ms, tts_fallback
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, summary_source, llm_status, llm_latency_ms, tts_fallback
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         alert_dict["alert_id"],
         alert_dict["cluster_id"],
@@ -226,6 +233,7 @@ def save_cluster_and_alert(
         alert_dict["listen_seconds"],
         alert_dict["created_at"],
         summary_source,
+        llm_status,
         llm_latency_ms,
         1 if tts_fallback else 0,
     ))
@@ -320,6 +328,17 @@ def get_cluster_detail(cluster_id: str) -> Optional[dict]:
 
     res["alerts"] = alerts
     res["pi_events"] = pi_events
+
+    # Expose latest alert's summary provenance & LLM status
+    if alerts:
+        latest = alerts[-1]
+        res["summary_source"] = latest.get("summary_source", res.get("summary_source", "template"))
+        res["llm_status"] = latest.get("llm_status", "ok")
+        res["llm_latency_ms"] = latest.get("llm_latency_ms")
+    else:
+        res["llm_status"] = "ok"
+        res["llm_latency_ms"] = None
+
     return res
 
 

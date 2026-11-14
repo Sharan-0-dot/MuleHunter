@@ -29,11 +29,14 @@ backend_dir = Path(__file__).resolve().parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
+import app.config as cfg
 from app.config import (
     SHARED_SECRET,
     LISTEN_SECONDS,
     SIM_SPEED,
     DETECT_TICK_SIM_MINUTES,
+    DETECT_TICK_WALL_SECONDS,
+    LLM_TIMEOUT_SECONDS,
     WARMUP_SIM_HOURS,
     WINDOW_HOURS,
     ALERT_MIN,
@@ -123,6 +126,9 @@ class Engine:
 
         # 8. Background loop task
         self.loop_task: Optional[asyncio.Task] = None
+        self.detect_tick_wall_seconds: float = DETECT_TICK_WALL_SECONDS
+        self.last_detection_wall_time: float = time.perf_counter()
+        self.last_pi_ack: Optional[dict] = None
 
     def warmup(self):
         """Generates WARMUP_SIM_HOURS of legit traffic in batch to prime graph window."""
@@ -305,11 +311,11 @@ class Engine:
                     ]
                     await self._broadcast_dashboard({"type": "tx_batch", "txs": batch_payload})
 
-                # 5. Check if it's time for a detection tick
-                time_since_detect = (self.sim_time - self.last_detection_sim_time).total_seconds()
-                if time_since_detect >= self.detection_interval_sec:
+                # 5. Check if it's time for a wall-clock detection tick (every DETECT_TICK_WALL_SECONDS)
+                time_since_detect_wall = now_wall - self.last_detection_wall_time
+                if time_since_detect_wall >= self.detect_tick_wall_seconds:
                     if not self.tick_lock.locked():
-                        self.last_detection_sim_time = self.sim_time
+                        self.last_detection_wall_time = now_wall
                         asyncio.create_task(self._run_detection_tick())
 
                 # 6. Check unacked Pi alerts for escalation
@@ -359,11 +365,9 @@ class Engine:
                     prev_rank = BAND_RANKS.get(prev_level, 0)
                     new_rank = BAND_RANKS.get(level, 0)
 
-                    # First alert: requires confirm_ticks consecutive ticks at p >= ALERT_MIN
-                    # or immediate trigger if high-confidence attack ring (p >= 0.70)
+                    # First alert: requires confirm_ticks consecutive wall ticks at p >= ALERT_MIN
                     if prev_level is None:
-                        is_confirmed = (trk.consecutive_alert_ticks >= self.tracker.confirm_ticks) or (p >= 0.70)
-                        if is_confirmed:
+                        if trk.consecutive_alert_ticks >= self.tracker.confirm_ticks:
                             trk.alerted_level = level
                             await self._process_alert(trk, risk_score, level, prob=p, exposure=exposure)
                     # Re-alert only on upward band jump (e.g. green -> yellow -> red)
@@ -425,17 +429,33 @@ class Engine:
         audio_path = backend_dir / "static" / "audio" / f"{cluster_id}_v{version}.wav"
         wav_url = f"{get_public_base_url()}/static/audio/{cluster_id}_v{version}.wav"
         summary_source = "template"
-        llm_latency_ms = 0.0
+        llm_status = "disabled" if not cfg.LLM_ENABLED else ("no_key" if not cfg.OPENROUTER_API_KEY else "ok")
+        llm_latency_ms = None
         tts_fallback = True
 
         if not headless:
-            # 2. LLM polish in worker thread
             loop = asyncio.get_running_loop()
-            final_summary, summary_source, llm_latency_ms = await loop.run_in_executor(
-                None, polish_summary, template_text
-            )
+            facts = {
+                "accounts_count": len(cluster_obj.accounts),
+                "total_amount": cluster_obj.total_amount,
+                "risk_pct": int(round(risk_score * 100)),
+            }
+            try:
+                polish_future = loop.run_in_executor(None, polish_summary, template_text, facts)
+                final_summary, summary_source, llm_status, llm_latency_ms = await asyncio.wait_for(
+                    polish_future, timeout=cfg.LLM_TIMEOUT_SECONDS + 0.5
+                )
+            except asyncio.TimeoutError:
+                final_summary = template_text
+                summary_source = "template"
+                llm_status = "timeout"
+                llm_latency_ms = cfg.LLM_TIMEOUT_SECONDS * 1000.0
+            except Exception as e:
+                final_summary = template_text
+                summary_source = "template"
+                llm_status = f"exception:{type(e).__name__}"
 
-            # 3. TTS WAV synthesis in worker thread
+            # 3. TTS WAV synthesis in worker thread from FINAL text
             audio_path, wav_url, tts_fallback = await loop.run_in_executor(
                 None,
                 generate_audio,
@@ -489,6 +509,7 @@ class Engine:
             llm_latency_ms=llm_latency_ms,
             tts_fallback=tts_fallback,
             window_txs=window_txs,
+            llm_status=llm_status,
         )
 
         # Audit: log alert_created event
@@ -518,6 +539,9 @@ class Engine:
             dashboard_payload = dict(alert_dict)
             dashboard_payload["type"] = "cluster_alert"
             dashboard_payload["summary"] = final_summary
+            dashboard_payload["summary_source"] = summary_source
+            dashboard_payload["llm_status"] = llm_status
+            dashboard_payload["llm_latency_ms"] = llm_latency_ms
             dashboard_payload["accounts"] = list(cluster_obj.accounts)
             dashboard_payload["features"] = cluster_obj.features
             dashboard_payload["risk_components"] = {
@@ -739,6 +763,7 @@ class Engine:
                 append_audit("escalate", {"alert_id": alert_id, "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
 
     def handle_pi_ack(self, alert_id: str, event: str, ts: str):
+        self.last_pi_ack = {"event": event, "alert_id": alert_id, "time": ts}
         """Handles acknowledgement from Pi, stores in DB, cancels escalation, and forwards to dashboard."""
         record_pi_ack(alert_id, event, ts)
         if alert_id in self.unacked_alerts:

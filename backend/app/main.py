@@ -48,6 +48,7 @@ from app.db import (
     get_cluster_detail,
 )
 from app.audit import append_audit, list_audit, verify_audit
+from app.summary.llm import get_llm_debug_history
 
 METRICS_VAL_FULL_PATH = backend_dir / "data" / "metrics_val_full.json"
 METRICS_PATH = backend_dir / "data" / "metrics.json"
@@ -148,6 +149,9 @@ async def sim_reset():
     return {"ok": True, "sim_time": engine.sim_time.isoformat()}
 
 
+ALLOWED_ATTACK_TYPES = {"smurfing", "round_trip", "mule_chain", "hybrid", "stealth"}
+
+
 class AttackRequest(BaseModel):
     type: str
     difficulty: int = 1
@@ -156,10 +160,39 @@ class AttackRequest(BaseModel):
 
 @app.post("/api/sim/attack")
 async def sim_attack(req: AttackRequest):
+    atk_type = req.type.lower().strip()
+    if atk_type not in ALLOWED_ATTACK_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid attack type '{req.type}'. Allowed types: {sorted(list(ALLOWED_ATTACK_TYPES))}"
+        )
+    if req.difficulty < 1 or req.difficulty > 5:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Difficulty must be between 1 and 5 (got {req.difficulty})"
+        )
+    if req.total_amount_inr is not None and req.total_amount_inr <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail=f"total_amount_inr must be a positive integer (got {req.total_amount_inr})"
+        )
+
+    started_sim = False
     if not engine.is_running:
         await engine.start()
-    res = engine.launch_attack(req.type, req.difficulty, total_amount_inr=req.total_amount_inr)
-    return res
+        started_sim = True
+
+    res = engine.launch_attack(atk_type, req.difficulty, total_amount_inr=req.total_amount_inr)
+    return {
+        "ok": True,
+        "started_sim": started_sim,
+        "attack_id": res["ring_id"],
+        "ring_id": res["ring_id"],
+        "type": atk_type,
+        "difficulty": req.difficulty,
+        "total_amount_inr": req.total_amount_inr,
+        "start_ts": res["start_ts"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +287,16 @@ async def get_metrics():
         "sim_time": engine.sim_time.isoformat(),
         "sim_speed": engine.sim_speed,
         "is_running": engine.is_running,
+        "pi_connected": len(engine.pi_websockets),
+        "last_pi_ack": engine.last_pi_ack,
         "metrics": saved_metrics,
     }
+
+
+@app.get("/api/debug/llm")
+async def get_debug_llm():
+    """Returns the last 20 LLM polish attempts."""
+    return {"attempts": get_llm_debug_history()}
 
 
 @app.get("/api/dev/ground_truth")
