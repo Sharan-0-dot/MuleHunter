@@ -9,13 +9,19 @@ import {
   generateMockGraph,
   MOCK_METRICS,
   MOCK_AUDIT,
-} from "./mockData";
+} from "./mockData.js";
 
 class MockServer {
   constructor() {
     this.clusters = JSON.parse(JSON.stringify(MOCK_CLUSTERS));
     this.accounts = JSON.parse(JSON.stringify(MOCK_ACCOUNTS));
     this.metrics = JSON.parse(JSON.stringify(MOCK_METRICS));
+    this.metrics.pi_connected = 1;
+    this.metrics.last_pi_ack = {
+      event: "played",
+      alert_id: "A-0001",
+      time: new Date().toISOString(),
+    };
     this.audit = JSON.parse(JSON.stringify(MOCK_AUDIT));
     this.simSpeed = 10.0;
     this.isRunning = true;
@@ -96,6 +102,12 @@ class MockServer {
       else if (event.startsWith("explain")) cluster.pi_status = "heard";
       else if (event === "played") cluster.pi_status = "played";
     }
+
+    this.metrics.last_pi_ack = {
+      event: event,
+      alert_id: alertId,
+      time: new Date().toISOString(),
+    };
 
     this.broadcastDashboard({
       type: "pi_ack",
@@ -232,6 +244,8 @@ class MockServer {
 
       return {
         ok: true,
+        started_sim: true,
+        attack_id: `RING-${newClusterId}`,
         ring_id: `RING-${newClusterId}`,
         cluster_id: newClusterId,
         attack_type: body.type,

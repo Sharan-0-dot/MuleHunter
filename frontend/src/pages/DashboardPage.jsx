@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import TopBar from "../components/TopBar";
 import AlertFeed from "../components/AlertFeed";
 import GraphView from "../components/GraphView";
@@ -11,13 +11,22 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState([]);
   const [selectedClusterId, setSelectedClusterId] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [newestAlertId, setNewestAlertId] = useState(null);
+  const [lastClusterAlert, setLastClusterAlert] = useState(null);
+  const [lastPiAck, setLastPiAck] = useState(null);
+  const [isRedAlertFlashing, setIsRedAlertFlashing] = useState(false);
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
+
   const [metrics, setMetrics] = useState({
     tx_processed: 0,
     alerts_count: 0,
     prevented_inr: 0,
     sim_speed: 10,
     is_running: true,
+    pi_connected: 0,
+    last_pi_ack: null,
   });
+
   const [simSpeed, setSimSpeed] = useState(10);
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [toasts, setToasts] = useState([]);
@@ -49,6 +58,46 @@ export default function DashboardPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  // Keyboard shortcut: F key toggles presentation mode
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target && e.target.matches("input, textarea, select")) return;
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setIsPresentationMode((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Simulator controls
+  const handleStartSim = async () => {
+    try {
+      await apiFetch("/api/sim/start", {
+        method: "POST",
+        body: JSON.stringify({ speed: Number(simSpeed) }),
+      });
+      setMetrics((prev) => ({ ...prev, is_running: true }));
+      addToast(`Simulator started at ${simSpeed}x`, "success");
+    } catch (err) {
+      addToast(`Failed to start simulator: ${err.message}`, "error");
+    }
+  };
+
+  const handleSpeedChange = async (newSpeed) => {
+    const val = Number(newSpeed);
+    setSimSpeed(val);
+    try {
+      await apiFetch("/api/sim/start", {
+        method: "POST",
+        body: JSON.stringify({ speed: val }),
+      });
+      setMetrics((prev) => ({ ...prev, is_running: true, sim_speed: val }));
+      addToast(`Simulation speed set to ${val}x`, "info");
+    } catch (_) {}
+  };
+
   // Initial fetch of clusters and metrics
   useEffect(() => {
     let isMounted = true;
@@ -67,7 +116,7 @@ export default function DashboardPage() {
         console.warn("Could not fetch clusters", err);
       });
 
-    // Metrics poll function
+    // Metrics poll function (handles both old and new backend shapes)
     const fetchMetrics = () => {
       apiFetch("/api/metrics")
         .then((data) => {
@@ -79,8 +128,12 @@ export default function DashboardPage() {
               prevented_inr: data.prevented_inr ?? prev.prevented_inr,
               sim_speed: data.sim_speed ?? prev.sim_speed,
               is_running: data.is_running ?? prev.is_running,
+              pi_connected: data.pi_connected ?? prev.pi_connected ?? 0,
+              last_pi_ack: data.last_pi_ack ?? prev.last_pi_ack ?? null,
             }));
-            if (data.sim_speed) setSimSpeed(data.sim_speed);
+            if (data.sim_speed && typeof data.sim_speed === "number") {
+              setSimSpeed(data.sim_speed);
+            }
           }
         })
         .catch((err) => {
@@ -116,12 +169,34 @@ export default function DashboardPage() {
             return [msg, ...prev].slice(0, 100);
           });
           setMetrics((prev) => ({ ...prev, alerts_count: prev.alerts_count + 1 }));
-          addToast(`New ${msg.level?.toUpperCase()} alert: ${msg.cluster_id}`, "error");
+
+          // Track new alert for visual alerts & re-centering
+          setNewestAlertId(msg.alert_id || msg.cluster_id);
+          setLastClusterAlert(msg);
+          setSelectedClusterId(msg.cluster_id);
+
+          // Red alert pulses graph border
+          if (msg.level === "red") {
+            setIsRedAlertFlashing(true);
+            setTimeout(() => setIsRedAlertFlashing(false), 2000);
+          }
+
+          addToast(
+            `🚨 ${msg.level?.toUpperCase()} Alert: ${msg.cluster_id} (${Math.round(
+              (msg.risk_score || 0) * 100
+            )}% risk)`,
+            msg.level === "red" ? "error" : "warning"
+          );
         } else if (msg.type === "cluster_updated") {
           setAlerts((prev) =>
             prev.map((a) => (a.cluster_id === msg.cluster_id ? { ...a, ...msg } : a))
           );
         } else if (msg.type === "pi_ack") {
+          setLastPiAck(msg);
+          setMetrics((prev) => ({
+            ...prev,
+            last_pi_ack: msg,
+          }));
           setAlerts((prev) =>
             prev.map((a) => {
               if (a.alert_id === msg.alert_id || a.cluster_id === msg.cluster_id) {
@@ -147,7 +222,10 @@ export default function DashboardPage() {
               prevented_inr: prev.prevented_inr + msg.prevented_inr,
             }));
           }
-          addToast(`Cluster ${msg.cluster_id} frozen! Prevented INR ${msg.prevented_inr}`, "success");
+          addToast(
+            `Cluster ${msg.cluster_id} frozen! Prevented INR ${msg.prevented_inr}`,
+            "success"
+          );
         }
       },
       (status) => {
@@ -213,33 +291,49 @@ export default function DashboardPage() {
   const selectedCluster = selectedClusterDetail || rawSelectedCluster;
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${isPresentationMode ? "presentation-app" : ""}`}>
       <TopBar
         metrics={metrics}
         simSpeed={simSpeed}
-        setSimSpeed={setSimSpeed}
+        setSimSpeed={handleSpeedChange}
         wsStatus={wsStatus}
         officer={officer}
+        isPresentationMode={isPresentationMode}
+        onTogglePresentationMode={() => setIsPresentationMode((p) => !p)}
+        lastPiAck={lastPiAck}
         onLogout={handleLogout}
         onToast={addToast}
       />
 
-      <main className="dashboard-layout">
+      <main className={`dashboard-layout ${isPresentationMode ? "presentation-mode" : ""}`}>
         {/* Left column: Alerts feed */}
         <AlertFeed
           alerts={alerts}
           selectedClusterId={selectedClusterId}
+          newestAlertId={newestAlertId}
           onSelectCluster={handleSelectCluster}
         />
 
-        {/* Center column: 3D/2D Graph */}
-        <GraphView
-          selectedClusterId={selectedClusterId}
-          selectedNodeId={selectedNodeId}
-          onSelectNode={handleSelectNode}
-          onClearSelection={handleClearSelection}
-          onToast={addToast}
-        />
+        {/* Center column: 3D/2D Graph + Attack Launcher in clean flex layout */}
+        <section className="center-column-layout">
+          <GraphView
+            selectedClusterId={selectedClusterId}
+            selectedNodeId={selectedNodeId}
+            lastAlertId={newestAlertId}
+            isRedAlertFlashing={isRedAlertFlashing}
+            onSelectNode={handleSelectNode}
+            onClearSelection={handleClearSelection}
+            onToast={addToast}
+          />
+          <AttackLauncher
+            onToast={addToast}
+            simRunning={Boolean(metrics.is_running)}
+            simSpeed={simSpeed}
+            onSetSimSpeed={handleSpeedChange}
+            onStartSim={handleStartSim}
+            lastAlert={lastClusterAlert}
+          />
+        </section>
 
         {/* Right column: Detail inspection panel */}
         <DetailPanel
@@ -251,9 +345,6 @@ export default function DashboardPage() {
           onToast={addToast}
           onClusterFrozen={handleClusterFrozen}
         />
-
-        {/* Bottom-left attack launcher */}
-        <AttackLauncher onToast={addToast} />
       </main>
 
       <Toast toasts={toasts} onDismiss={dismissToast} />

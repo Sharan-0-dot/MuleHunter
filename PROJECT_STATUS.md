@@ -112,16 +112,29 @@
 - **End-to-End Contract Verification (`backend/scripts/test_real.py`)**:
   - 100% pass across all 11 integration checks on port 8001.
 
-### Milestone M5 (Completed)
+### Milestone M5 (Completed & Hardened for Live Demo)
 - **Frontend Architecture (`frontend/`)**:
   - Stack: Vite + React 18, `react-router-dom`, `react-force-graph-3d`, `react-force-graph-2d`, `three`, `recharts`.
   - Dark theme with accent `#7B3FC4`, CSS variables, projector-readable body font ($\ge 16\text{px}$).
-  - Full Mock Mode (`VITE_MOCK=1`) and Live Server mode (`VITE_MOCK=0`).
-- **Pages Delivered**:
-  - `/` (Dashboard): Direct access with active Officer A compliance session (no login barrier for hackathon demo). Top bar (start/stop/reset/speed, live counters, WS status, active officer badge), Alert feed (level badges, human-readable typologies, Lakh/Crore amounts, Pi status badges, click focus, 100-alert cap), 3D Force Graph (in-place node coordinate merging, camera flying, risk/frozen coloring, link particles, click inspect, 2D fallback, 600 node cap), Detail panel (Master 8.6 fields, recent tx, one-click freeze cluster action), and Adversarial Attack Launcher (5 typologies, difficulty slider, ring volume sizes).
-  - `/metrics`: Synthetic data validation split banner, precision/recall/F1 benchmark table, Recharts line chart of F1 vs difficulty 1–5, stealth scenario breakdown, latency, prevented INR.
-  - `/audit`: Hash-chained SHA-256 audit log viewer with Verify Chain action connected to live `/api/audit` and `/api/audit/verify`.
-- **Build Verification**: `npm run build` passes with 0 errors. Run instructions documented in `frontend/README.md`.
+  - Full Mock Mode (`VITE_MOCK=1`) and Live Server mode (`VITE_MOCK=0`, port 8001).
+- **Task 1 — Attack Launcher Diagnosis & Complete Rebuild**:
+  - Diagnosed failure: `frontend/.env` targeted port 8000 instead of 8001, simulation stopped state blocked ring execution silently, and UI lacked progress timer/state.
+  - Rebuilt `AttackLauncher.jsx`: Typology buttons (`smurfing`, `round_trip`, `mule_chain`, `hybrid`, `stealth`), difficulty slider 1–5 (hidden for stealth), ring sizes (₹3L, ₹10L, ₹25L sending `total_amount_inr`), and unified launch button (`idle`, `sending`, `launched`).
+  - "Attack in progress" strip: Real-time timer ("detecting... 12 s"), switches to "Alert raised" when `cluster_alert` arrives, or warning after 60s. Inline "Start simulation" button when sim is paused.
+  - Dedicated Speed control with "Demo 20x" preset and live status dot (running/stopped).
+  - Keyboard shortcuts: Keys 1–5 select typology, Enter launches (disabled inside form inputs).
+- **Task 2 — Graph Centering & Viewport Sizing**:
+  - Diagnosed right-shift bug: `ForceGraph3D/2D` defaulted to `window.innerWidth` (1920px) rather than center column width (1200px), placing canvas origin $(0,0)$ at $80\%$ across container. Center grid column lacked `min-width: 0`.
+  - Sizing fix: Integrated `ResizeObserver` observing `.graph-canvas-wrapper`, passing exact `width` and `height` props to `ForceGraph3D` and `ForceGraph2D`. Center grid column given `minmax(0, 1fr)`.
+  - Smart camera centering: Computes cluster bounding centroid and radius $R$, framing cluster with $D = \max(180, \min(650, R \cdot 2.8 + 120))$ via `cameraPosition(..., 800)`. Re-centers strictly on explicit selection or new alert arrival, never jumping on 3s data polls.
+  - Added dedicated "🎯 Re-center" button in toolbar and `Esc` key shortcut. Layout stabilized with gentle d3 center force and `d3VelocityDecay(0.25)`.
+- **Task 3 — Projector Demo Polish**:
+  - Alert animations: New alerts trigger `@keyframes alertSlideIn` and level colour pulse. Red alerts trigger a 2-second red border pulse around the graph (`@keyframes redBorderPulse`).
+  - Top bar Raspberry Pi indicator: Green dot when `pi_connected > 0`, grey when standby, displaying the last Pi event phrase (e.g. "Voice keyword heard", "Audio played") from `last_pi_ack`.
+  - Empty states: Clean empty state in alert feed ("No alerts yet. Launch an attack.") and graph loading overlay.
+  - Fullscreen / Presentation mode (`F` key or button): Maximizes graph and alert feed, hides secondary navigation, preserves Launcher and Freeze button.
+  - Readability: Summary text in DetailPanel enlarged to 18px (`.large-summary-text`), plain-language typology phrases, and provenance badge for `summary_source` ("AI Polished" / "Template") with `llm_status`.
+- **Build Verification**: `npm run build` passes with 0 errors in 8.08s. All 5 typologies verified against live backend on 8001 and mock server.
 
 ---
 

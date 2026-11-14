@@ -43,8 +43,16 @@ export async function apiFetch(path, options = {}) {
     let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
     try {
       const errJson = await response.json();
-      if (errJson && errJson.detail) {
-        errorDetail = errJson.detail;
+      if (errJson) {
+        if (typeof errJson.detail === "string") {
+          errorDetail = errJson.detail;
+        } else if (Array.isArray(errJson.detail)) {
+          errorDetail = errJson.detail.map((d) => d.msg || d.loc?.join(".") || JSON.stringify(d)).join("; ");
+        } else if (errJson.error) {
+          errorDetail = errJson.error;
+        } else if (errJson.message) {
+          errorDetail = errJson.message;
+        }
       }
     } catch (_) {}
     const err = new Error(errorDetail);

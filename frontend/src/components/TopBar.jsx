@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { apiFetch, IS_MOCK } from "../api/client";
 
 export function formatINR(val) {
@@ -14,17 +14,30 @@ export function formatINR(val) {
   return `₹${num.toLocaleString("en-IN")}`;
 }
 
+export function formatPiEventName(ev) {
+  if (!ev) return "";
+  const map = {
+    received: "Alert received",
+    explain_voice: "Voice keyword heard",
+    explain_joystick: "Joystick trigger",
+    played: "Audio played",
+    timeout: "Response timeout",
+  };
+  return map[ev] || ev.replace(/_/g, " ");
+}
+
 export default function TopBar({
   metrics,
   simSpeed,
   setSimSpeed,
   wsStatus,
   officer,
+  isPresentationMode,
+  onTogglePresentationMode,
+  lastPiAck,
   onLogout,
   onToast,
 }) {
-  const navigate = useNavigate();
-
   const handleStart = async () => {
     try {
       await apiFetch("/api/sim/start", {
@@ -66,48 +79,60 @@ export default function TopBar({
     } catch (_) {}
   };
 
+  // Pi connection state
+  const isPiConnected = Boolean(metrics?.pi_connected && metrics.pi_connected > 0);
+  const piAck = lastPiAck || metrics?.last_pi_ack;
+  const piEventText = piAck?.event ? formatPiEventName(piAck.event) : null;
+
   return (
-    <header className="topbar">
+    <header className={`topbar ${isPresentationMode ? "presentation-topbar" : ""}`}>
       <div className="topbar-brand">
         <div className="topbar-logo">
           <span>⚡ Mule Hunter</span>
           <span className="badge-aml">PS 2.1</span>
-          {IS_MOCK && (
-            <span
-              style={{
-                fontSize: "10px",
-                background: "#F59E0B",
-                color: "#000",
-                padding: "2px 6px",
-                borderRadius: "4px",
-                fontWeight: 700,
-              }}
-            >
-              MOCK MODE
-            </span>
-          )}
+          {IS_MOCK && <span className="mock-badge">MOCK MODE</span>}
         </div>
-        <nav className="nav-links">
-          <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/metrics" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            Metrics
-          </NavLink>
-          <NavLink to="/audit" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            Audit
-          </NavLink>
-        </nav>
+
+        {/* Hide secondary navigation in Presentation Mode */}
+        {!isPresentationMode && (
+          <nav className="nav-links">
+            <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              Dashboard
+            </NavLink>
+            <NavLink to="/metrics" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              Metrics
+            </NavLink>
+            <NavLink to="/audit" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              Audit
+            </NavLink>
+          </nav>
+        )}
       </div>
 
+      {/* Primary Simulator Controls */}
       <div className="topbar-sim-controls">
-        <button className="btn-sim btn-sim-start" onClick={handleStart} title="Start simulation loop">
+        <button
+          type="button"
+          className="btn-sim btn-sim-start"
+          onClick={handleStart}
+          title="Start simulation loop"
+        >
           ▶ Start
         </button>
-        <button className="btn-sim btn-sim-stop" onClick={handleStop} title="Stop simulation loop">
+        <button
+          type="button"
+          className="btn-sim btn-sim-stop"
+          onClick={handleStop}
+          title="Stop simulation loop"
+        >
           ⏸ Stop
         </button>
-        <button className="btn-sim btn-sim-reset" onClick={handleReset} title="Reset simulation state">
+        <button
+          type="button"
+          className="btn-sim btn-sim-reset"
+          onClick={handleReset}
+          title="Reset simulation state"
+        >
           ↺ Reset
         </button>
         <div className="speed-control">
@@ -122,6 +147,7 @@ export default function TopBar({
         </div>
       </div>
 
+      {/* Counters */}
       <div className="topbar-counters">
         <div className="counter-chip">
           <span className="counter-label">Tx Processed</span>
@@ -137,34 +163,49 @@ export default function TopBar({
         </div>
       </div>
 
+      {/* Status Indicators (Pi Desk, WebSocket, Presentation Toggle) */}
       <div className="topbar-status">
+        {/* Raspberry Pi Connection & Event Indicator */}
         <div
-          style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}
+          className={`pi-connection-chip ${isPiConnected ? "connected" : "standby"}`}
+          title={
+            isPiConnected
+              ? `Raspberry Pi Compliance Desk is online (${metrics.pi_connected} client)`
+              : "Raspberry Pi Compliance Desk is in standby (waiting for /ws/pi client)"
+          }
+        >
+          <span className={`pi-status-dot ${isPiConnected ? "dot-online" : "dot-standby"}`} />
+          <span className="pi-chip-label">Pi Desk:</span>
+          <span className="pi-chip-state">{isPiConnected ? "Online" : "Standby"}</span>
+          {piEventText && <span className="pi-chip-event">· {piEventText}</span>}
+        </div>
+
+        {/* WebSocket Status */}
+        <div
+          className="ws-status-chip"
           title={`WebSocket Status: ${wsStatus}`}
         >
           <span className={`ws-status-dot ws-status-${wsStatus}`} />
-          <span style={{ color: "var(--text-secondary)", textTransform: "capitalize" }}>
+          <span style={{ color: "var(--text-secondary)", textTransform: "capitalize", fontSize: "12px" }}>
             {wsStatus}
           </span>
         </div>
 
-        <div className="officer-chip" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Compliance Officer:</span>
-          <span className="officer-name" style={{ fontWeight: 600, color: "#DDD6FE" }}>
-            {officer?.name || "Officer A"}
-          </span>
-          <span
-            style={{
-              fontSize: "10px",
-              background: "#059669",
-              color: "#fff",
-              padding: "2px 6px",
-              borderRadius: "4px",
-              fontWeight: 700,
-            }}
-          >
-            ACTIVE
-          </span>
+        {/* Fullscreen / Presentation Mode Toggle */}
+        <button
+          type="button"
+          className={`btn-presentation-toggle ${isPresentationMode ? "active" : ""}`}
+          onClick={onTogglePresentationMode}
+          title="Toggle Fullscreen Presentation Mode (F key)"
+        >
+          {isPresentationMode ? "✕ Exit Fullscreen (F)" : "📽️ Presentation (F)"}
+        </button>
+
+        {/* Officer info */}
+        <div className="officer-chip">
+          <span className="officer-role-label">Officer:</span>
+          <span className="officer-name">{officer?.name || "Officer A"}</span>
+          <span className="officer-active-badge">ACTIVE</span>
         </div>
       </div>
     </header>

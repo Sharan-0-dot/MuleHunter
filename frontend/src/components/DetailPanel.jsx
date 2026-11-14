@@ -78,6 +78,14 @@ export default function DetailPanel({
     selectedCluster?.features?.total_amount ||
     0;
 
+  // Provenance / summary source badge info
+  const summarySource = selectedCluster?.summary_source || "template";
+  const llmStatus = selectedCluster?.llm_status;
+  const badgeLabel =
+    summarySource === "llm"
+      ? `AI Polished${llmStatus && llmStatus !== "ok" ? ` (${llmStatus})` : ""}`
+      : `Template${llmStatus ? ` (${llmStatus})` : ""}`;
+
   return (
     <aside className="detail-panel">
       <div className="panel-header">
@@ -90,6 +98,7 @@ export default function DetailPanel({
         </h2>
         {nodeDetail && selectedCluster && (
           <button
+            type="button"
             className="btn-secondary"
             style={{ fontSize: "11px", padding: "3px 8px" }}
             onClick={() => onSelectNode(null)}
@@ -107,32 +116,91 @@ export default function DetailPanel({
             <div className="data-grid" style={{ marginBottom: "12px" }}>
               <div className="data-item">
                 <span className="data-item-label">Typology</span>
-                <span className="data-item-value" style={{ color: "#DDD6FE" }}>
+                <span className="data-item-value" style={{ color: "#DDD6FE", fontWeight: 600 }}>
                   {formatTypology(selectedCluster.typology)}
                 </span>
               </div>
               <div className="data-item">
                 <span className="data-item-label">Risk Level</span>
-                <span className="data-item-value" style={{ color: selectedCluster.level === "red" ? "#EF4444" : "#F59E0B" }}>
+                <span
+                  className="data-item-value"
+                  style={{ color: selectedCluster.level === "red" ? "#EF4444" : "#F59E0B" }}
+                >
                   {selectedCluster.level?.toUpperCase()} ({Math.round((selectedCluster.risk_score || 0) * 100)}%)
                 </span>
               </div>
               <div className="data-item">
-                <span className="data-item-label">Total Amount</span>
+                <span className="data-item-label">Total Volume</span>
                 <span className="data-item-value">{formatINR(totalAmount)}</span>
               </div>
               <div className="data-item">
                 <span className="data-item-label">Accounts</span>
-                <span className="data-item-value">{selectedCluster.accounts?.length || selectedCluster.accounts_count || 0}</span>
+                <span className="data-item-value">
+                  {selectedCluster.accounts?.length || selectedCluster.accounts_count || 0}
+                </span>
               </div>
             </div>
 
+            {/* Large Readable Summary Text with Provenance Badge (>= 18px) */}
             {selectedCluster.summary_text && (
-              <p className="summary-text">"{selectedCluster.summary_text}"</p>
+              <div className="summary-block">
+                <div className="summary-header-row">
+                  <span className="summary-header-label">Audio Brief (Officer Summary):</span>
+                  <span className={`summary-source-badge ${summarySource}`}>
+                    {summarySource === "llm" ? "✨ " : "📄 "}
+                    {badgeLabel}
+                  </span>
+                </div>
+                <p className="large-summary-text">"{selectedCluster.summary_text}"</p>
+              </div>
             )}
           </div>
 
-          {/* Risk components / features if present */}
+          {/* Freeze Action Button */}
+          <div className="panel-section freeze-action-section">
+            <button
+              type="button"
+              className="btn-freeze"
+              disabled={!officer || isClusterFrozen || isFreezing}
+              onClick={handleFreeze}
+              title={
+                !officer
+                  ? "Log in as officer"
+                  : isClusterFrozen
+                  ? "Cluster already frozen"
+                  : "Approve emergency freeze"
+              }
+            >
+              {isClusterFrozen ? "✓ Cluster Frozen" : isFreezing ? "Freezing..." : "🛑 Freeze Cluster"}
+            </button>
+            {!officer && !isClusterFrozen && (
+              <p className="freeze-tooltip">🔒 Log in as officer to approve account freeze</p>
+            )}
+            {isClusterFrozen && (
+              <p className="freeze-prevented-label">
+                Prevented INR: {formatINR(frozenPrevented || selectedCluster.prevented_inr || totalAmount || 0)}
+              </p>
+            )}
+          </div>
+
+          {/* Linked accounts clickable list */}
+          <div className="panel-section">
+            <h3 className="section-title">Linked Accounts ({selectedCluster.accounts?.length || 0})</h3>
+            <div className="account-chips">
+              {(selectedCluster.accounts || []).map((accId) => (
+                <span
+                  key={accId}
+                  className={`account-chip ${isClusterFrozen ? "frozen" : ""}`}
+                  onClick={() => onSelectNode(accId)}
+                  title="Click to focus node in graph"
+                >
+                  {accId}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Risk components decomposition */}
           {riskComponents && Object.keys(riskComponents).length > 0 && (
             <div className="panel-section">
               <h3 className="section-title">Risk Model Decomposition</h3>
@@ -149,50 +217,21 @@ export default function DetailPanel({
             </div>
           )}
 
-          {/* Linked accounts clickable list */}
-          <div className="panel-section">
-            <h3 className="section-title">Linked Accounts (Click to Inspect)</h3>
-            <div className="account-chips">
-              {(selectedCluster.accounts || []).map((accId) => (
-                <span
-                  key={accId}
-                  className={`account-chip ${isClusterFrozen ? "frozen" : ""}`}
-                  onClick={() => onSelectNode(accId)}
-                  title="Click to focus node in graph"
-                >
-                  {accId}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Freeze Action Button */}
-          <div className="panel-section" style={{ textAlign: "center" }}>
-            <button
-              className="btn-freeze"
-              disabled={!officer || isClusterFrozen || isFreezing}
-              onClick={handleFreeze}
-              title={!officer ? "Log in as officer" : isClusterFrozen ? "Cluster already frozen" : "Approve emergency freeze"}
-            >
-              {isClusterFrozen ? "✓ Cluster Frozen" : isFreezing ? "Freezing..." : "🛑 Freeze Cluster"}
-            </button>
-            {!officer && !isClusterFrozen && (
-              <p className="freeze-tooltip">🔒 Log in as officer to approve account freeze</p>
-            )}
-            {isClusterFrozen && (
-              <p style={{ marginTop: "8px", fontSize: "13px", color: "var(--color-green)", fontWeight: 600 }}>
-                Prevented INR: {formatINR(frozenPrevented || selectedCluster.prevented_inr || totalAmount || 0)}
-              </p>
-            )}
-          </div>
-
           {/* Alert & Pi Events Timeline */}
           {timeline && timeline.length > 0 && (
             <div className="panel-section">
               <h3 className="section-title">Compliance Timeline</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px" }}>
                 {timeline.map((item, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "4px" }}>
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      borderBottom: "1px solid var(--border)",
+                      paddingBottom: "4px",
+                    }}
+                  >
                     <span style={{ color: "#DDD6FE", textTransform: "capitalize" }}>
                       {item.event.replace(/_/g, " ")}
                     </span>
@@ -207,105 +246,59 @@ export default function DetailPanel({
         </>
       )}
 
-      {/* Node Details (Master 8.6 fields) */}
+      {/* Account Node Inspection Section */}
       {nodeDetail && (
-        <>
-          <div className="panel-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-              <h3 className="section-title" style={{ margin: 0 }}>Account Profile</h3>
-              {nodeDetail.frozen && <span className="badge-frozen">Frozen</span>}
+        <div className="panel-section">
+          <h3 className="section-title">Account Diagnostics</h3>
+          <div className="data-grid">
+            <div className="data-item">
+              <span className="data-item-label">Account ID</span>
+              <span className="data-item-value">{nodeDetail.account_id}</span>
             </div>
-
-            <div className="data-grid">
-              <div className="data-item">
-                <span className="data-item-label">Account ID</span>
-                <span className="data-item-value">{nodeDetail.account_id}</span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">Entity Type</span>
-                <span className="data-item-value" style={{ textTransform: "capitalize" }}>
-                  {nodeDetail.type || "individual"}
-                </span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">Cluster</span>
-                <span className="data-item-value">{nodeDetail.cluster_id || "None"}</span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">Calibrated Risk</span>
-                <span className="data-item-value" style={{ color: nodeDetail.risk >= 0.7 ? "#EF4444" : "#60A5FA" }}>
-                  {Math.round((nodeDetail.risk || 0) * 100)}%
-                </span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">Total Inflow</span>
-                <span className="data-item-value">{formatINR(nodeDetail.in_amount || 0)}</span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">Total Outflow</span>
-                <span className="data-item-value">{formatINR(nodeDetail.out_amount || 0)}</span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">Retention Ratio</span>
-                <span className="data-item-value">
-                  {nodeDetail.retention_ratio !== undefined ? `${(nodeDetail.retention_ratio * 100).toFixed(1)}%` : "N/A"}
-                </span>
-              </div>
-              <div className="data-item">
-                <span className="data-item-label">In / Out Degree</span>
-                <span className="data-item-value">{nodeDetail.in_degree ?? 0} in / {nodeDetail.out_degree ?? 0} out</span>
-              </div>
-              <div className="data-item" style={{ gridColumn: "span 2" }}>
-                <span className="data-item-label">Median Hold Time</span>
-                <span className="data-item-value">
-                  {nodeDetail.median_hold_seconds ? `${Math.round(nodeDetail.median_hold_seconds)} s (${(nodeDetail.median_hold_seconds / 60).toFixed(1)} min)` : "N/A"}
-                </span>
-              </div>
+            <div className="data-item">
+              <span className="data-item-label">Risk Score</span>
+              <span
+                className="data-item-value"
+                style={{
+                  color:
+                    nodeDetail.risk >= 0.85
+                      ? "#EF4444"
+                      : nodeDetail.risk >= 0.65
+                      ? "#F59E0B"
+                      : "#10B981",
+                }}
+              >
+                {Math.round((nodeDetail.risk || 0) * 100)}%
+              </span>
+            </div>
+            <div className="data-item">
+              <span className="data-item-label">Inflow Volume</span>
+              <span className="data-item-value">{formatINR(nodeDetail.in_amount || 0)}</span>
+            </div>
+            <div className="data-item">
+              <span className="data-item-label">Outflow Volume</span>
+              <span className="data-item-value">{formatINR(nodeDetail.out_amount || 0)}</span>
+            </div>
+            <div className="data-item">
+              <span className="data-item-label">Status</span>
+              <span className="data-item-value">
+                {nodeDetail.frozen ? (
+                  <span style={{ color: "#38BDF8", fontWeight: 700 }}>FROZEN</span>
+                ) : (
+                  <span style={{ color: "var(--color-green)" }}>ACTIVE</span>
+                )}
+              </span>
             </div>
           </div>
-
-          {/* Recent Transactions Table */}
-          <div className="panel-section">
-            <h3 className="section-title">Recent Transactions</h3>
-            {nodeDetail.recent_tx && nodeDetail.recent_tx.length > 0 ? (
-              <table className="tx-table">
-                <thead>
-                  <tr>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Amount</th>
-                    <th>Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nodeDetail.recent_tx.map((tx, idx) => (
-                    <tr key={idx}>
-                      <td style={{ color: tx.from === nodeDetail.account_id ? "#F87171" : "inherit" }}>
-                        {tx.from}
-                      </td>
-                      <td style={{ color: tx.to === nodeDetail.account_id ? "#34D399" : "inherit" }}>
-                        {tx.to}
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{formatINR(tx.amount)}</td>
-                      <td style={{ color: "var(--text-muted)" }}>{formatTime(tx.ts)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>No recent transactions recorded.</p>
-            )}
-          </div>
-        </>
+        </div>
       )}
 
-      {/* No selection prompt */}
+      {/* Empty State when no cluster selected */}
       {!selectedCluster && !nodeDetail && (
-        <div style={{ textAlign: "center", padding: "40px 16px", color: "var(--text-secondary)" }}>
-          <p style={{ fontSize: "28px", marginBottom: "8px" }}>🔍</p>
-          <p style={{ fontSize: "15px", fontWeight: 600, color: "#fff" }}>No Entity Selected</p>
-          <p style={{ fontSize: "13px", marginTop: "4px" }}>
-            Click an alert in the left feed or any node in the 3D graph to inspect cluster typology, money trails, and linked accounts.
+        <div className="panel-empty-state">
+          <span style={{ fontSize: "28px" }}>🔍</span>
+          <p style={{ marginTop: "12px", color: "var(--text-secondary)" }}>
+            Select an alert from the feed or a cluster in the graph to inspect AML risk factors.
           </p>
         </div>
       )}

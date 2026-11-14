@@ -4,15 +4,15 @@ import { formatINR } from "./TopBar";
 export function formatTypology(t) {
   if (!t) return "Unknown Typology";
   const map = {
-    smurfing_fan_out_fan_in: "Smurfing (Fan-Out/In)",
-    smurfing: "Smurfing",
-    round_tripping: "Round Tripping",
-    round_trip: "Round Tripping",
-    mule_chain: "Mule Chain",
-    hybrid: "Hybrid Attack",
-    stealth: "Stealth Attack",
-    fan_out: "Fan-Out",
-    fan_in: "Fan-In",
+    smurfing_fan_out_fan_in: "Smurfing (Structuring & Aggregation)",
+    smurfing: "Smurfing (Structuring & Aggregation)",
+    round_tripping: "Round-Trip Laundering Loop",
+    round_trip: "Round-Trip Laundering Loop",
+    mule_chain: "Multi-Hop Mule Pass-Through Chain",
+    hybrid: "Hybrid Smurfing & Layered Loop",
+    stealth: "Stealth Sub-Threshold Structuring",
+    fan_out: "Fan-Out Dispersal",
+    fan_in: "Fan-In Consolidation",
   };
   return map[t] || t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -52,29 +52,35 @@ export function getAccountsCount(alert) {
   return 0;
 }
 
-export default function AlertFeed({ alerts, selectedClusterId, onSelectCluster }) {
+export default function AlertFeed({
+  alerts = [],
+  selectedClusterId = null,
+  newestAlertId = null,
+  onSelectCluster,
+}) {
   return (
     <aside className="alert-feed">
       <div className="feed-header">
         <h2 className="feed-title">🚨 Compliance Alerts</h2>
-        <span className="feed-count">{alerts.length} total (capped at 100)</span>
+        <span className="feed-count">{alerts.length} total</span>
       </div>
 
       <div className="feed-list">
         {alerts.length === 0 ? (
-          <div
-            style={{
-              padding: "24px 16px",
-              textAlign: "center",
-              color: "var(--text-secondary)",
-              fontSize: "14px",
-            }}
-          >
-            No laundering alerts detected yet. Live stream monitoring...
+          <div className="feed-empty-state">
+            <span className="empty-icon">🛡️</span>
+            <span className="empty-title">No alerts yet. Launch an attack.</span>
+            <span className="empty-subtitle">
+              Choose a typology in the panel below and click Launch to observe real-time detection.
+            </span>
           </div>
         ) : (
           alerts.map((alert) => {
             const isSelected = selectedClusterId === alert.cluster_id;
+            const isNewFlash =
+              newestAlertId &&
+              (alert.alert_id === newestAlertId || alert.cluster_id === newestAlertId);
+
             const levelClass =
               alert.level === "red"
                 ? "level-red"
@@ -87,69 +93,74 @@ export default function AlertFeed({ alerts, selectedClusterId, onSelectCluster }
               : 0;
 
             const piStatus = alert.pi_status;
+            const amount = getClusterAmount(alert);
+            const numAccounts = getAccountsCount(alert);
 
             return (
               <div
                 key={alert.alert_id || alert.cluster_id}
-                className={`alert-row ${isSelected ? "selected" : ""}`}
+                className={`alert-row ${isSelected ? "selected" : ""} ${
+                  isNewFlash ? "new-alert-flash" : ""
+                } ${alert.level || "red"}`}
                 onClick={() => onSelectCluster(alert.cluster_id)}
               >
                 <div className="alert-row-header">
                   <span className={`level-chip ${levelClass}`}>
-                    {alert.level || "ALERT"}
+                    {alert.level?.toUpperCase() || "ALERT"}
                   </span>
-                  <span className="alert-risk" style={{ color: "var(--accent-hover)" }}>
-                    {riskPct}% Risk
+                  <span className="alert-id-text">
+                    {alert.alert_id || alert.cluster_id}
+                  </span>
+                  <span className="alert-time-text">
+                    {formatTime(alert.created_at)}
                   </span>
                 </div>
 
-                <div className="alert-typology">
+                <div className="alert-row-typology">
                   {formatTypology(alert.typology)}
                 </div>
 
-                <div className="alert-meta">
-                  <span>{getAccountsCount(alert)} accounts</span>
-                  <span style={{ fontWeight: 600, color: "#fff" }}>
-                    {formatINR(getClusterAmount(alert))}
-                  </span>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                    {formatTime(alert.created_at || alert.first_seen)}
-                  </span>
+                <div className="alert-row-meta">
+                  <div className="meta-item">
+                    <span className="meta-label">Risk</span>
+                    <span
+                      className="meta-val"
+                      style={{
+                        color:
+                          alert.level === "red"
+                            ? "#EF4444"
+                            : alert.level === "yellow"
+                            ? "#F59E0B"
+                            : "#10B981",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {riskPct}%
+                    </span>
+                  </div>
+
+                  <div className="meta-item">
+                    <span className="meta-label">Amount</span>
+                    <span className="meta-val">{formatINR(amount)}</span>
+                  </div>
+
+                  <div className="meta-item">
+                    <span className="meta-label">Nodes</span>
+                    <span className="meta-val">{numAccounts} accs</span>
+                  </div>
                 </div>
 
-                <div className="alert-pi-status">
-                  <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>Pi Desk:</span>
-                  {piStatus === "received" && (
-                    <span className="pi-badge received" title="Alert received by Raspberry Pi">
-                      ⚡ Received
+                {/* Pi Desk Progress Badge */}
+                {piStatus && (
+                  <div className="alert-row-pi-status">
+                    <span className={`pi-badge ${piStatus}`}>
+                      {piStatus === "received" && "Pi: Alert Received"}
+                      {piStatus === "heard" && "Pi: Voice Keyword Heard"}
+                      {piStatus === "played" && "Pi: Audio Played ✓"}
+                      {piStatus === "timeout" && "Pi: Ack Timeout ⚠️"}
                     </span>
-                  )}
-                  {piStatus === "heard" && (
-                    <span className="pi-badge heard" title="Voice or Joystick keyword 'explain' heard">
-                      🎙️ Explain Heard
-                    </span>
-                  )}
-                  {piStatus === "played" && (
-                    <span className="pi-badge played" title="Spoken audio summary finished playback">
-                      🔊 Audio Played
-                    </span>
-                  )}
-                  {piStatus === "timeout" && (
-                    <span className="pi-badge timeout" title="Officer response timed out">
-                      ⏱️ Timeout
-                    </span>
-                  )}
-                  {!piStatus && (
-                    <span className="pi-badge" style={{ opacity: 0.6 }}>
-                      Queued
-                    </span>
-                  )}
-                  {alert.frozen && (
-                    <span className="badge-frozen" style={{ marginLeft: "auto" }}>
-                      Frozen
-                    </span>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })
