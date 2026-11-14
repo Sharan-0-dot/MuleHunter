@@ -5,21 +5,26 @@
 
 import { mockServer } from "../mock/mockServer";
 
-export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8001";
-export const IS_MOCK = import.meta.env.VITE_MOCK === "1" || import.meta.env.VITE_MOCK === 1 || import.meta.env.VITE_MOCK === true || import.meta.env.VITE_MOCK === "true";
+let activeApiBase = import.meta.env.VITE_API_BASE || "http://localhost:8001";
+export const API_BASE = activeApiBase;
+export const IS_MOCK =
+  import.meta.env.VITE_MOCK === "1" ||
+  import.meta.env.VITE_MOCK === 1 ||
+  import.meta.env.VITE_MOCK === true ||
+  import.meta.env.VITE_MOCK === "true";
 
 // Derive WebSocket base URL
 export function getWsBase() {
-  if (API_BASE.startsWith("https://")) {
-    return API_BASE.replace("https://", "wss://");
+  if (activeApiBase.startsWith("https://")) {
+    return activeApiBase.replace("https://", "wss://");
   }
-  return API_BASE.replace("http://", "ws://");
+  return activeApiBase.replace("http://", "ws://");
 }
 
 export const WS_BASE = getWsBase();
 
 /**
- * HTTP fetch wrapper with JWT header support and error handling
+ * HTTP fetch wrapper with automatic port fallback (8001 <-> 8000) and clear error reporting
  */
 export async function apiFetch(path, options = {}) {
   if (IS_MOCK) {
@@ -33,11 +38,37 @@ export async function apiFetch(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  const url = `${API_BASE}${path}`;
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${activeApiBase}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    // Network error: try alternate port (8001 <-> 8000)
+    const altPort = activeApiBase.includes(":8001")
+      ? activeApiBase.replace(":8001", ":8000")
+      : activeApiBase.includes(":8000")
+      ? activeApiBase.replace(":8000", ":8001")
+      : null;
+
+    if (altPort) {
+      try {
+        response = await fetch(`${altPort}${path}`, {
+          ...options,
+          headers,
+        });
+        // Switched port successfully
+        activeApiBase = altPort;
+      } catch (_) {
+        throw new Error(
+          `Backend connection refused. Ensure backend is running: uvicorn app.main:app --app-dir backend --port 8001`
+        );
+      }
+    } else {
+      throw new Error(`Backend connection refused at ${activeApiBase}.`);
+    }
+  }
 
   if (!response.ok) {
     let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
@@ -103,7 +134,15 @@ export class ReconnectingWebSocket {
       return;
     }
 
-    const fullUrl = `${WS_BASE}${this.path}`;
+    let wsBase = getWsBase();
+    if (this.reconnectAttempts % 2 === 1) {
+      wsBase = wsBase.includes(":8001")
+        ? wsBase.replace(":8001", ":8000")
+        : wsBase.includes(":8000")
+        ? wsBase.replace(":8000", ":8001")
+        : wsBase;
+    }
+    const fullUrl = `${wsBase}${this.path}`;
     try {
       this.ws = new WebSocket(fullUrl);
     } catch (err) {
