@@ -10,7 +10,7 @@
 | **M3** | XGBoost risk model, baseline threshold rule, evaluation script (`evaluate.py`) | **Done** |
 | **M4a** | Live pipeline: simulator -> detection -> model -> alert -> summary -> wav -> push to Pi and dashboard (`engine.py`, `main.py`, `test_real.py`, `soak_real.py`) | **Done** |
 | **M4b** | Backend hardening (fingerprint JWT protection on mutate endpoints, freeze endpoint, hash-chained audit log) | Not Started |
-| **M5** | Frontend 3D dashboard (React + Vite + `react-force-graph-3d`) | Not Started |
+| **M5** | Frontend 3D dashboard (React + Vite + `react-force-graph-3d`) | **Done** |
 | **M6** | Integration rehearsals, metrics page, audit verification, demo rehearsals | Not Started |
 
 ---
@@ -85,6 +85,18 @@
   - RAM memory growth: +0.1 MB (4.2 MB -> 4.3 MB).
 - **Step 8 — Hardware Teammate Handoff (`FRIEND_HANDOFF.md`)**:
   - Complete guide created detailing port 8001 endpoints, curl commands, WebSocket schemas, HMAC signing, and biometric mappings.
+
+### Milestone M5 (Completed)
+- **Frontend Architecture (`frontend/`)**:
+  - Stack: Vite + React 18, `react-router-dom`, `react-force-graph-3d`, `react-force-graph-2d`, `three`, `recharts`.
+  - Dark theme with accent `#7B3FC4`, CSS variables, projector-readable body font ($\ge 16\text{px}$).
+  - Full Mock Mode (`VITE_MOCK=1`) and Live Server mode (`VITE_MOCK=0`).
+- **Pages Delivered**:
+  - `/login`: Biometric desk sensor challenge flow (`POST /api/auth/challenge`, `/ws/auth/{id}`, 30s countdown, mock finger tap trigger, password fallback).
+  - `/` (Dashboard): Top bar (start/stop/reset/speed, live counters, WS status, officer chip), Alert feed (level badges, human-readable typologies, Lakh/Crore amounts, Pi status badges, click focus, 100-alert cap), 3D Force Graph (in-place node coordinate merging, camera flying, risk/frozen coloring, link particles, click inspect, 2D fallback, 600 node cap), Detail panel (Master 8.6 fields, recent tx, freeze cluster action), and Adversarial Attack Launcher (5 typologies, difficulty slider, ring volume sizes).
+  - `/metrics`: Synthetic data validation split banner, precision/recall/F1 benchmark table, Recharts line chart of F1 vs difficulty 1–5, stealth scenario breakdown, latency, prevented INR.
+  - `/audit`: Hash-chained SHA-256 audit log viewer with Verify Chain action (gracefully tolerant of 404 while M4b is in progress).
+- **Build Verification**: `npm run build` passes with 0 errors. Run instructions documented in `frontend/README.md`.
 
 ---
 
