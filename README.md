@@ -209,9 +209,9 @@ OPENROUTER_API_KEY=your-openrouter-key-here
 OPENROUTER_MODEL=openai/gpt-4o-mini
 ```
 
-Start the backend server on **Port 8001**:
+Start the backend server on **Port 8000**:
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8001
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ---
@@ -240,7 +240,7 @@ Open your browser at **`http://localhost:5173`**.
 If you wish to demo the frontend independently without running the Python backend:
 1. In `frontend/.env`, set:
    ```env
-   VITE_API_BASE=http://localhost:8001
+   VITE_API_BASE=http://localhost:8000
    VITE_MOCK=1
    ```
 2. Start the development server (`npm run dev`). The in-browser mock server simulates all background streaming ticks, 3D laundering rings, WebSocket events, and physical desk interactions.
@@ -286,9 +286,9 @@ python backend/scripts/soak_real.py
 ## 📡 Hardware Desk Integration (Raspberry Pi)
 
 ### Connection Details
-- **WebSocket Feed**: `ws://<SERVER_IP>:8001/ws/pi`
+- **WebSocket Feed**: `ws://<SERVER_IP>:8000/ws/pi`
 - **Shared Secret**: `mulehunter-demo-secret` (used for all HMAC-SHA256 signatures)
-- **Health Check**: `http://<SERVER_IP>:8001/api/metrics`
+- **Health Check**: `http://<SERVER_IP>:8000/api/metrics`
 
 ### Alert Reception Schema (Master 8.2 Contract)
 ```json
@@ -301,7 +301,7 @@ python backend/scripts/soak_real.py
   "typology": "round_tripping",
   "accounts_count": 7,
   "total_amount_inr": 2500000,
-  "wav_url": "http://<SERVER_IP>:8001/static/audio/C-0001.wav",
+  "wav_url": "http://<SERVER_IP>:8000/static/audio/C-0001.wav",
   "listen_seconds": 25,
   "created_at": "2026-11-15T10:42:12Z"
 }
@@ -316,7 +316,7 @@ import hmac, hashlib, json, requests
 from datetime import datetime, timezone
 
 SHARED_SECRET = "mulehunter-demo-secret"
-BACKEND_URL = "http://<SERVER_IP>:8001"
+BACKEND_URL = "http://<SERVER_IP>:8000"
 
 def send_pi_ack(alert_id, event):
     payload = {

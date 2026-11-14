@@ -5,7 +5,7 @@
 
 import { mockServer } from "../mock/mockServer";
 
-let activeApiBase = import.meta.env.VITE_API_BASE || "http://localhost:8001";
+let activeApiBase = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 export const API_BASE = activeApiBase;
 export const IS_MOCK =
   import.meta.env.VITE_MOCK === "1" ||
