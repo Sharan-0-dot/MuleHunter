@@ -17,7 +17,7 @@ const RING_SIZES = [
 
 export default function AttackLauncher({ onToast }) {
   const [attackType, setAttackType] = useState("round_trip");
-  const [difficulty, setDifficulty] = useState(2);
+  const [difficulty, setDifficulty] = useState(1);
   const [ringSize, setRingSize] = useState("medium");
   const [isLaunching, setIsLaunching] = useState(false);
 

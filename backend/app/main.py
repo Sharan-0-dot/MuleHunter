@@ -144,6 +144,7 @@ async def sim_stop():
 @app.post("/api/sim/reset")
 async def sim_reset():
     await engine.reset()
+    await engine.start()
     return {"ok": True, "sim_time": engine.sim_time.isoformat()}
 
 
@@ -155,6 +156,8 @@ class AttackRequest(BaseModel):
 
 @app.post("/api/sim/attack")
 async def sim_attack(req: AttackRequest):
+    if not engine.is_running:
+        await engine.start()
     res = engine.launch_attack(req.type, req.difficulty, total_amount_inr=req.total_amount_inr)
     return res
 

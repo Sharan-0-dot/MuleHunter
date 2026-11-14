@@ -360,8 +360,10 @@ class Engine:
                     new_rank = BAND_RANKS.get(level, 0)
 
                     # First alert: requires confirm_ticks consecutive ticks at p >= ALERT_MIN
+                    # or immediate trigger if high-confidence attack ring (p >= 0.70)
                     if prev_level is None:
-                        if trk.consecutive_alert_ticks >= self.tracker.confirm_ticks:
+                        is_confirmed = (trk.consecutive_alert_ticks >= self.tracker.confirm_ticks) or (p >= 0.70)
+                        if is_confirmed:
                             trk.alerted_level = level
                             await self._process_alert(trk, risk_score, level, prob=p, exposure=exposure)
                     # Re-alert only on upward band jump (e.g. green -> yellow -> red)
