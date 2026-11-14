@@ -1,0 +1,208 @@
+{
+  "split": "val",
+  "account_level": {
+    "baseline_fixed": {
+      "precision": 0.0094,
+      "recall": 0.6917,
+      "f1": 0.0186
+    },
+    "baseline_tuned": {
+      "precision": 0.0201,
+      "recall": 0.4778,
+      "f1": 0.0386
+    },
+    "rules_only": {
+      "precision": 0.0109,
+      "recall": 0.928,
+      "f1": 0.0215
+    },
+    "rules_plus_xgboost": {
+      "precision": 0.6345,
+      "recall": 0.8718,
+      "f1": 0.7345
+    }
+  },
+  "by_difficulty": {
+    "1": {
+      "baseline_fixed": {
+        "precision": 0.0099,
+        "recall": 1.0,
+        "f1": 0.0196
+      },
+      "baseline_tuned": {
+        "precision": 0.0303,
+        "recall": 1.0,
+        "f1": 0.0588
+      },
+      "rules_only": {
+        "precision": 0.0081,
+        "recall": 0.944,
+        "f1": 0.016
+      },
+      "rules_plus_xgboost": {
+        "precision": 0.561,
+        "recall": 0.92,
+        "f1": 0.697
+      }
+    },
+    "2": {
+      "baseline_fixed": {
+        "precision": 0.0099,
+        "recall": 1.0,
+        "f1": 0.0196
+      },
+      "baseline_tuned": {
+        "precision": 0.0303,
+        "recall": 1.0,
+        "f1": 0.0589
+      },
+      "rules_only": {
+        "precision": 0.008,
+        "recall": 0.936,
+        "f1": 0.0159
+      },
+      "rules_plus_xgboost": {
+        "precision": 0.6056,
+        "recall": 0.872,
+        "f1": 0.7148
+      }
+    },
+    "3": {
+      "baseline_fixed": {
+        "precision": 0.0143,
+        "recall": 0.9784,
+        "f1": 0.0282
+      },
+      "baseline_tuned": {
+        "precision": 0.0272,
+        "recall": 0.6054,
+        "f1": 0.0521
+      },
+      "rules_only": {
+        "precision": 0.0121,
+        "recall": 0.9568,
+        "f1": 0.0238
+      },
+      "rules_plus_xgboost": {
+        "precision": 0.6641,
+        "recall": 0.9297,
+        "f1": 0.7748
+      }
+    },
+    "4": {
+      "baseline_fixed": {
+        "precision": 0.0091,
+        "recall": 0.5561,
+        "f1": 0.0178
+      },
+      "baseline_tuned": {
+        "precision": 0.017,
+        "recall": 0.3366,
+        "f1": 0.0323
+      },
+      "rules_only": {
+        "precision": 0.0132,
+        "recall": 0.9415,
+        "f1": 0.026
+      },
+      "rules_plus_xgboost": {
+        "precision": 0.6067,
+        "recall": 0.8878,
+        "f1": 0.7208
+      }
+    },
+    "5": {
+      "baseline_fixed": {
+        "precision": 0.0066,
+        "recall": 0.3532,
+        "f1": 0.013
+      },
+      "baseline_tuned": {
+        "precision": 0.0037,
+        "recall": 0.0638,
+        "f1": 0.0071
+      },
+      "rules_only": {
+        "precision": 0.0144,
+        "recall": 0.8979,
+        "f1": 0.0283
+      },
+      "rules_plus_xgboost": {
+        "precision": 0.7143,
+        "recall": 0.8085,
+        "f1": 0.7585
+      }
+    }
+  },
+  "stealth": {
+    "baseline_fixed": {
+      "precision": 0.008,
+      "recall": 0.3623,
+      "f1": 0.0156,
+      "ring_recall": 0.2
+    },
+    "baseline_tuned": {
+      "precision": 0.005,
+      "recall": 0.0725,
+      "f1": 0.0093,
+      "ring_recall": 0.0
+    },
+    "rules_only": {
+      "precision": 0.0163,
+      "recall": 0.8696,
+      "f1": 0.032,
+      "ring_recall": 0.8
+    },
+    "rules_plus_xgboost": {
+      "precision": 0.6322,
+      "recall": 0.7971,
+      "f1": 0.7051,
+      "ring_recall": 0.8
+    }
+  },
+  "ring_recall": {
+    "baseline_fixed": 0.6571,
+    "baseline_tuned": 0.581,
+    "rules_only": 0.9143,
+    "rules_plus_xgboost": 0.9333
+  },
+  "latency_sec": {
+    "mean": -9326.3,
+    "median": 391.3
+  },
+  "prevented_inr": 66402367.02,
+  "false_alerts_per_day": {
+    "green": 0.0,
+    "yellow": 0.0,
+    "red": 0.0,
+    "total_ge_040": 0.0
+  },
+  "score_deciles": {
+    "true_ring_clusters": {
+      "p10": 1.0,
+      "p20": 1.0,
+      "p30": 1.0,
+      "p40": 1.0,
+      "p50": 1.0,
+      "p60": 1.0,
+      "p70": 1.0,
+      "p80": 1.0,
+      "p90": 1.0,
+      "p100": 1.0
+    },
+    "legit_clusters": {
+      "p10": 0.0,
+      "p20": 0.0,
+      "p30": 0.0,
+      "p40": 0.0,
+      "p50": 0.0,
+      "p60": 0.0,
+      "p70": 0.0,
+      "p80": 0.0,
+      "p90": 0.0,
+      "p100": 0.3208
+    },
+    "n_ring_clusters": 2584,
+    "n_legit_clusters": 146028
+  }
+}

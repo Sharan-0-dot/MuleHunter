@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+websockets
+requests
+pyjwt
+python-dotenv
+pyttsx3
+numpy
+pandas
+networkx
+xgboost
+scikit-learn
+pyarrow
+joblib
+psutil

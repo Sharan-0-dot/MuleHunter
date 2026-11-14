@@ -1,0 +1,4 @@
+{
+  "tuned_threshold": 120000.0,
+  "mean_train_f1": 0.057
+}

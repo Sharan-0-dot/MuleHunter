@@ -1,0 +1,8 @@
+.env
+.venv
+__pycache__/
+*.pyc
+node_modules/
+*.db
+backend/static/audio/C-*.wav
+backend/static/audio/test_*.wav
