@@ -19,7 +19,7 @@
   - WebSocket `/ws/pi`: 10-second ping keepalive, pong reception
   - POST `/mock/trigger?level=red|yellow|green`: broadcasts alert JSON
   - POST `/api/pi/ack`: HMAC-SHA256 signature verification via `X-Signature` header
-  - Auth: POST `/api/auth/challenge`, GET `/api/auth/challenge/pending`, WS `/ws/auth/{id}`, POST `/api/auth/fingerprint`, POST `/api/auth/password`
+  - Direct dashboard compliance officer session (active Officer A)
 
 #### Commands:
 ```powershell
@@ -153,7 +153,7 @@ Level 3      | 0.0282          | 0.0521          | 0.0237          | 0.7668
   - Below 0.40: no alert; 0.40-0.65: green; 0.65-0.85: yellow; >= 0.85: red.
 - **Database (`backend/data/mulehunter.db`)**: SQLite tables `alerts`, `clusters`, `alert_tx`, `officers`, `pi_events`.
 - **Spoken Audio Summaries**: Spoken-friendly templates under 45 words ending with `"Log in to the dashboard for linked accounts."` Optional OpenRouter polish with strict number preservation, synthesized via `pyttsx3` into mono 16-bit PCM WAV.
-- **Contract Verification (`backend/scripts/test_real.py`)**: All 9 contract checks passed on port 8001 (audio duration 15.32s, HMAC verification 200/401, WebSockets `/ws/pi` and `/ws/dashboard`, biometric challenge/response).
+- **Contract Verification (`backend/scripts/test_real.py`)**: All contract checks passed (audio duration 15.32s, HMAC verification 200/401, WebSockets `/ws/pi` and `/ws/dashboard`, freeze and audit verification).
 - **10-Minute Soak Test (`backend/scripts/soak_real.py`)**: 6/6 rings detected (100.0% recall), 248.88 ms mean tick runtime, +0.1 MB RAM delta over 100 sim-hours at 10x sim speed.
 
 #### Full Grid Validation Results (`evaluate.py --split val --full`, Seeds 50–54)

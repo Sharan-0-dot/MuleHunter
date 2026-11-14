@@ -21,23 +21,20 @@ export default function DashboardPage() {
   const [simSpeed, setSimSpeed] = useState(10);
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [toasts, setToasts] = useState([]);
-  const [officer, setOfficer] = useState(null);
+  const [officer, setOfficer] = useState({ id: "O-1", name: "Officer A", role: "officer" });
 
-  // Load officer from sessionStorage
+  // Ensure default demo officer credentials in sessionStorage
   useEffect(() => {
     try {
-      const stored = sessionStorage.getItem("mh_officer");
-      if (stored) {
-        setOfficer(JSON.parse(stored));
-      }
+      const defaultOfficer = { id: "O-1", name: "Officer A", role: "officer" };
+      sessionStorage.setItem("mh_officer", JSON.stringify(defaultOfficer));
+      sessionStorage.setItem("mh_token", "demo-token");
+      setOfficer(defaultOfficer);
     } catch (_) {}
   }, []);
 
   const handleLogout = () => {
-    sessionStorage.removeItem("mh_token");
-    sessionStorage.removeItem("mh_officer");
-    setOfficer(null);
-    addToast("Logged out of officer session", "info");
+    addToast("Compliance session locked to Officer A for hackathon demo", "info");
   };
 
   const addToast = useCallback((message, type = "info") => {

@@ -148,19 +148,24 @@ export default function TopBar({
           </span>
         </div>
 
-        {officer ? (
-          <div className="officer-chip">
-            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Officer:</span>
-            <span className="officer-name">{officer.name || officer.id}</span>
-            <button className="btn-logout" onClick={onLogout} title="Sign out">
-              Logout
-            </button>
-          </div>
-        ) : (
-          <button className="btn-login" onClick={() => navigate("/login")}>
-            🔑 Officer Login
-          </button>
-        )}
+        <div className="officer-chip" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Compliance Officer:</span>
+          <span className="officer-name" style={{ fontWeight: 600, color: "#DDD6FE" }}>
+            {officer?.name || "Officer A"}
+          </span>
+          <span
+            style={{
+              fontSize: "10px",
+              background: "#059669",
+              color: "#fff",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              fontWeight: 700,
+            }}
+          >
+            ACTIVE
+          </span>
+        </div>
       </div>
     </header>
   );

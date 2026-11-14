@@ -37,8 +37,10 @@ import websockets
 backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
-BASE_URL = "http://127.0.0.1:8001"
-WS_BASE = "ws://127.0.0.1:8001"
+from app.config import PORT
+
+BASE_URL = f"http://127.0.0.1:{PORT}"
+WS_BASE = f"ws://127.0.0.1:{PORT}"
 SHARED_SECRET = "mulehunter-demo-secret"
 
 

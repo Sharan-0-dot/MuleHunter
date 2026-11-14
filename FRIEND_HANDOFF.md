@@ -1,72 +1,66 @@
-# Mule Hunter — Hardware Teammate Handoff & Runbook
+# Mule Hunter — Hardware Teammate Handoff & Runbook (Raspberry Pi Compliance Desk)
 
-Welcome to the real Mule Hunter backend! This document provides everything you need to connect your Raspberry Pi and ESP32 desk unit directly to the real AML detection backend.
+Welcome to the real Mule Hunter backend! The backend is running on **Port 8000** (`http://0.0.0.0:8000`). This document provides everything you need to connect your Raspberry Pi alert desk directly to the live AML detection pipeline.
 
 ---
 
-## 1. Backend Server Overview & Port Configuration
+## 1. Backend Server Overview & Connection Details
 
-- **Current Port**: Currently running on **Port 8001** (`REAL_PORT` in `backend/.env`) to allow testing alongside the mock backend on port 8000.
-- **How to Switch to Port 8000 for Final Demo**:
-  1. Stop the mock backend process (kill process listening on port 8000).
-  2. In `backend/.env`, set:
-     ```bash
-     REAL_PORT=8000
-     ```
-  3. Start the real backend server:
-     ```powershell
-     cd backend
-     .\.venv\Scripts\uvicorn.exe app.main:app --app-dir . --host 0.0.0.0 --port 8000
-     ```
-- **Auto-detected LAN IP**: Automatically bound to your local network IP (e.g., `http://10.63.67.11:8001` or your current hotspot IP).
+- **Port**: **8000** (`http://<LAPTOP_LAN_IP>:8000`).
+- **WebSocket Feed for Pi**: `ws://<LAPTOP_LAN_IP>:8000/ws/pi`
 - **Shared Secret**: `mulehunter-demo-secret` (used for all HMAC-SHA256 signatures).
+- **Auto-detected Laptop LAN IP**: Check your laptop's Wi-Fi IP address on the shared hotspot (e.g., `192.168.43.x`).
+- **Health Check from Pi**:
+  ```bash
+  curl http://<LAPTOP_LAN_IP>:8000/api/metrics
+  ```
 
 ---
 
-## 2. Controlling the Simulation & Launching Sized Attacks
+## 2. Controlling the Simulation & Triggering Test Alerts
 
 You can control the live stream and trigger laundering rings at any time to test the Pi's alert reception, LED, buzzer, and audio playback:
 
 ### Start the simulation stream
 ```bash
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/start -H "Content-Type: application/json" -d '{"speed": 10}'
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/start -H "Content-Type: application/json" -d '{"speed": 10}'
 ```
 
 ### Pause the simulation stream
 ```bash
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/stop
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/stop
 ```
 
 ### Reset the simulation stream (clears clusters, alerts, audit log, and resets counters)
 ```bash
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/reset
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/reset
 ```
 
 ### Launch an attack ring with custom laundering size
 Attack types: `round_trip`, `smurfing`, `mule_chain`, `hybrid`, `stealth`. Difficulty: `1` to `5`.
-The optional `total_amount_inr` scales the ring's total volume to demonstrate urgency bands:
-- **300,000 INR (3 Lakh)** -> **GREEN** alert (0.40 - 0.65)
-- **1,000,000 INR (10 Lakh)** -> **YELLOW** alert (0.65 - 0.85)
-- **2,500,000 INR (25 Lakh)** -> **RED** alert (>= 0.85)
+The optional `total_amount_inr` scales the ring's total volume to hit specific urgency bands:
+- **300,000 INR (3 Lakh)** ➔ **GREEN** alert (0.40 - 0.65)
+- **1,000,000 INR (10 Lakh)** ➔ **YELLOW** alert (0.65 - 0.85)
+- **2,500,000 INR (25 Lakh)** ➔ **RED** alert (>= 0.85)
 
 ```bash
 # Example 1: Green alert test (3 lakh INR)
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/attack \
   -H "Content-Type: application/json" \
   -d '{"type": "round_trip", "difficulty": 2, "total_amount_inr": 300000}'
 
 # Example 2: Yellow alert test (10 lakh INR)
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/attack \
   -H "Content-Type: application/json" \
   -d '{"type": "smurfing", "difficulty": 3, "total_amount_inr": 1000000}'
 
 # Example 3: Red alert test (25 lakh INR)
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/attack \
   -H "Content-Type: application/json" \
   -d '{"type": "round_trip", "difficulty": 2, "total_amount_inr": 2500000}'
 
 # Example 4: Stealth ring (structures all hops strictly below 50,000 threshold)
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/sim/attack \
   -H "Content-Type: application/json" \
   -d '{"type": "stealth", "difficulty": 5}'
 ```
@@ -76,7 +70,7 @@ curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
 ## 3. Messages the Raspberry Pi Receives (`/ws/pi`)
 
 Connect your WebSocket client to:
-`ws://<LAPTOP_LAN_IP>:8001/ws/pi`
+`ws://<LAPTOP_LAN_IP>:8000/ws/pi`
 
 ### 1. Alert Message (`type: "alert"`)
 Pushed when a laundering cluster is confirmed by the detection pipeline (exact Master 8.2 contract):
@@ -90,7 +84,7 @@ Pushed when a laundering cluster is confirmed by the detection pipeline (exact M
   "typology": "round_tripping",
   "accounts_count": 6,
   "total_amount_inr": 2500000,
-  "wav_url": "http://<LAPTOP_LAN_IP>:8001/static/audio/C-0001_v1.wav",
+  "wav_url": "http://<LAPTOP_LAN_IP>:8000/static/audio/C-0001.wav",
   "listen_seconds": 25,
   "created_at": "2026-11-15T10:42:12Z"
 }
@@ -144,15 +138,16 @@ All mutating requests from the Pi require an HMAC-SHA256 signature in the `X-Sig
 ### Python snippet for Pi:
 ```python
 import hmac, hashlib, json, requests
+from datetime import datetime, timezone
 
 SHARED_SECRET = "mulehunter-demo-secret"
-BACKEND_URL = "http://<LAPTOP_LAN_IP>:8001"
+BACKEND_URL = "http://<LAPTOP_LAN_IP>:8000"
 
 def send_pi_ack(alert_id, event):
     payload = {
         "alert_id": alert_id,
         "event": event,  # "received" | "explain_voice" | "explain_joystick" | "played"
-        "ts": "2026-11-15T10:42:15Z"
+        "ts": datetime.now(timezone.utc).isoformat()
     }
     body_bytes = json.dumps(payload).encode("utf-8")
     sig = hmac.new(SHARED_SECRET.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
@@ -167,45 +162,25 @@ def send_pi_ack(alert_id, event):
 
 ---
 
-## 5. ESP32 Biometric Desk Unit Integration
-
-1. **Browser** opens challenge: `POST /api/auth/challenge` -> `{"challenge_id": "L-91ab", "expires_at": "..."}` and connects `ws://<LAPTOP_LAN_IP>:8001/ws/auth/L-91ab`.
-2. **Bridge script** polls `GET /api/auth/challenge/pending` every 500 ms.
-3. On fingerprint match on the ESP32, bridge sends HMAC-signed POST:
-   ```json
-   POST /api/auth/fingerprint
-   Header: X-Signature: <hex_hmac>
-   Body: {"challenge_id": "L-91ab", "sensor_id": 1, "confidence": 142}
-   ```
-4. **Officer Mappings**:
-   - `sensor_id: 1` or `2` -> **Officer A** (`O-1`) [role: officer]
-   - `sensor_id: 3` or `4` -> **Officer B** (`O-2`) [role: officer]
-   - `sensor_id: 5` -> **Admin** (`O-3`) [role: admin]
-5. Backend broadcasts `{"type": "login_ok", "token": "<jwt>", "officer": {...}}` on `/ws/auth/L-91ab` and logs in the officer.
-6. Fallback password: `POST /api/auth/password {"username": "officer", "password": "demo123"}`.
-
----
-
-## 6. Account Freeze & Cryptographic Audit Verification
+## 5. Account Freeze & Cryptographic Audit Verification
 
 ### Freezing a Cluster
-Requires valid JWT (`officer` or `admin` role) in `Authorization: Bearer <jwt>`:
+From dashboard (or curl):
 ```bash
-curl -X POST http://<LAPTOP_LAN_IP>:8001/api/clusters/C-0001/freeze \
-  -H "Authorization: Bearer <token>"
+curl -X POST http://<LAPTOP_LAN_IP>:8000/api/clusters/C-0001/freeze
 ```
-- Blocks all future transactions for accounts in the cluster.
+- Freezes all accounts in the cluster and blocks pending transactions.
 - Accumulates prevented INR in server telemetry (`/api/metrics`).
-- Sends `clear` to `/ws/pi` to deactivate LEDs/buzzer.
+- Sends `clear` to `/ws/pi` to immediately deactivate LEDs/buzzer on the Pi.
 - Broadcasts `frozen` event to `/ws/dashboard`.
-- Records `freeze` event into the tamper-evident audit trail.
+- Records `freeze` event into the tamper-evident SHA-256 audit trail.
 
 ### Verifying the Audit Trail
 ```bash
 # Fetch recent audit entries
-curl http://<LAPTOP_LAN_IP>:8001/api/audit?limit=20
+curl http://<LAPTOP_LAN_IP>:8000/api/audit?limit=20
 
 # Cryptographically verify SHA-256 hash chain
-curl http://<LAPTOP_LAN_IP>:8001/api/audit/verify
+curl http://<LAPTOP_LAN_IP>:8000/api/audit/verify
 # Response: {"ok": true, "entries": 6, "first_bad_index": null}
 ```

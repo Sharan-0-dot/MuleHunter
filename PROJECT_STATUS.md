@@ -9,9 +9,9 @@
 | **M2** | Detectors (sliding window, fan-out/in, cycles, mule chains, reconvergence) + cluster builder (`window.py`, `patterns.py`, `clusters.py`, `detect_check.py`) | **Done (Step A quality fixes passed)** |
 | **M3** | XGBoost risk model, baseline threshold rule, evaluation script (`evaluate.py`) | **Done** |
 | **M4a** | Live pipeline: simulator -> detection -> model -> alert -> summary -> wav -> push to Pi and dashboard (`engine.py`, `main.py`, `test_real.py`, `soak_real.py`) | **Done** |
-| **M4b** | Backend hardening (fingerprint JWT protection on mutate endpoints, freeze endpoint, hash-chained audit log) | **Done** |
-| **M5** | Frontend 3D dashboard (React + Vite + `react-force-graph-3d`) | **Done** |
-| **M6** | Integration rehearsals, metrics page, audit verification, demo rehearsals | Not Started |
+| **M4b** | Backend hardening (officer role-based freeze, clear signal to Pi, hash-chained audit log) | **Done** |
+| **M5** | Frontend 3D dashboard (React + Vite + `react-force-graph-3d`, direct dashboard compliance access) | **Done** |
+| **M6** | Final integration & hardware desk live demo | In Progress |
 
 ---
 
@@ -76,7 +76,6 @@
     - WAV audio downloaded: mono 16-bit PCM, 22050 Hz, 15.32s duration (<= 25s limit).
     - HMAC signature verification: 200 on valid, 401 on forged signature.
     - Dashboard events received: `tx_batch`, `cluster_alert`, `pi_ack`.
-    - Biometric challenge -> fingerprint -> `/ws/auth` login verified.
     - Attack launch to alert pushed latency: 52.33s wall-clock time.
 - **Step 7 — 10-Minute Soak Test (`backend/scripts/soak_real.py`)**:
   - Ran for 10 minutes at `SIM_SPEED=10` (~100 sim-hours), processing 18,750 transactions.
@@ -84,7 +83,7 @@
   - Mean detection tick runtime: 248.88 ms (< 500 ms target).
   - RAM memory growth: +0.1 MB (4.2 MB -> 4.3 MB).
 - **Step 8 — Hardware Teammate Handoff (`FRIEND_HANDOFF.md`)**:
-  - Complete guide created detailing port 8001 endpoints, curl commands, WebSocket schemas, HMAC signing, and biometric mappings.
+  - Complete guide created detailing port 8000 endpoints, curl commands, WebSocket schemas, and HMAC signing.
 
 ### Milestone M4b (Completed)
 - **Live Pipeline Fixes & Diagnostic Resolution**:
@@ -119,8 +118,7 @@
   - Dark theme with accent `#7B3FC4`, CSS variables, projector-readable body font ($\ge 16\text{px}$).
   - Full Mock Mode (`VITE_MOCK=1`) and Live Server mode (`VITE_MOCK=0`).
 - **Pages Delivered**:
-  - `/login`: Biometric desk sensor challenge flow (`POST /api/auth/challenge`, `/ws/auth/{id}`, 30s countdown, mock finger tap trigger, password fallback).
-  - `/` (Dashboard): Top bar (start/stop/reset/speed, live counters, WS status, officer chip), Alert feed (level badges, human-readable typologies, Lakh/Crore amounts, Pi status badges, click focus, 100-alert cap), 3D Force Graph (in-place node coordinate merging, camera flying, risk/frozen coloring, link particles, click inspect, 2D fallback, 600 node cap), Detail panel (Master 8.6 fields, recent tx, freeze cluster action), and Adversarial Attack Launcher (5 typologies, difficulty slider, ring volume sizes).
+  - `/` (Dashboard): Direct access with active Officer A compliance session (no login barrier for hackathon demo). Top bar (start/stop/reset/speed, live counters, WS status, active officer badge), Alert feed (level badges, human-readable typologies, Lakh/Crore amounts, Pi status badges, click focus, 100-alert cap), 3D Force Graph (in-place node coordinate merging, camera flying, risk/frozen coloring, link particles, click inspect, 2D fallback, 600 node cap), Detail panel (Master 8.6 fields, recent tx, one-click freeze cluster action), and Adversarial Attack Launcher (5 typologies, difficulty slider, ring volume sizes).
   - `/metrics`: Synthetic data validation split banner, precision/recall/F1 benchmark table, Recharts line chart of F1 vs difficulty 1–5, stealth scenario breakdown, latency, prevented INR.
   - `/audit`: Hash-chained SHA-256 audit log viewer with Verify Chain action connected to live `/api/audit` and `/api/audit/verify`.
 - **Build Verification**: `npm run build` passes with 0 errors. Run instructions documented in `frontend/README.md`.

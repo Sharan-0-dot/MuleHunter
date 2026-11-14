@@ -7,15 +7,15 @@
 
 ## 1. What we are building (one paragraph)
 
-**Mule Hunter** is a streaming anti-money-laundering (AML) system for **PS 2.1: Graph-Based Detection of Layered Money Laundering Networks**. It models transactions as a temporal, directed, weighted graph, detects fan-in/fan-out dispersion, cyclic round-tripping and rapid pass-through mule chains, groups them into ranked clusters, labels each with its typology, writes a plain-language summary of the money trail, and reports precision/recall/F1 against a threshold-based baseline. On top of this, a **physical compliance desk** (Raspberry Pi) alerts the bank officer with LEDs and a buzzer, listens for the spoken keyword "explain", and reads the summary aloud. A separate **ESP32 + fingerprint sensor** lets the officer log in to the web dashboard, where a clickable 3D graph shows the cluster and every linked account, and the officer can approve a freeze.
+**Mule Hunter** is a streaming anti-money-laundering (AML) system for **PS 2.1: Graph-Based Detection of Layered Money Laundering Networks**. It models transactions as a temporal, directed, weighted graph, detects fan-in/fan-out dispersion, cyclic round-tripping and rapid pass-through mule chains, groups them into ranked clusters, labels each with its typology, writes a plain-language summary of the money trail, and reports precision/recall/F1 against a threshold-based baseline. On top of this, a **physical compliance desk** (Raspberry Pi) alerts the bank officer with LEDs and a buzzer, listens for the spoken keyword "explain", and reads the summary aloud. The **web dashboard** provides an interactive compliance workstation with an active officer session, where a clickable 3D graph shows the cluster and every linked account, and the officer can approve an emergency freeze.
 
-**We are entering PS 2.1 ONLY.** Hardware, voice and the attack simulator are presentation/evaluation layers for the same problem statement. In the pitch: the attack simulator is "adversarial evaluation data", the Pi is the "alert delivery channel", the fingerprint is "maker-checker officer authentication (optional, demo-grade)".
+**We are entering PS 2.1 ONLY.** Hardware, voice and the attack simulator are presentation/evaluation layers for the same problem statement. In the pitch: the attack simulator is "adversarial evaluation data", the Pi is the "alert delivery channel", the dashboard provides "maker-checker officer authorization".
 
 ## 2. Team and ownership
 
 | | Person 1 (Sharan) | Person 2 (Friend) |
 |---|---|---|
-| Owns | ALL software: simulator, detection, ML, metrics, summaries, TTS, backend API, 3D web dashboard | ALL hardware: Pi alert box, ESP32 fingerprint login, serial bridge |
+| Owns | ALL software: simulator, detection, ML, metrics, summaries, TTS, backend API, 3D web dashboard | ALL hardware: Pi alert box (LEDs, buzzer, audio playback, joystick / voice ack) |
 | Tools | Antigravity CLI + Gemini Pro | Own laptop, SSH into the Pi, no AI tooling (so file 02 is very explicit) |
 | Context file | 01_PERSON1_SOFTWARE.md | 02_PERSON2_HARDWARE.md |
 
@@ -23,7 +23,7 @@ Rule: after Person 1's software is stable, Person 1 helps with hardware (wiring,
 
 ## 3. Hardware inventory
 
-Raspberry Pi 3B+ (1GB RAM), USB mic, speaker (3.5mm or USB), piezo buzzer, red/yellow/green LEDs + resistors, joystick (use only its push-button), ESP32, R307S fingerprint module (primary), SY2823 fingerprint module (spare, protocol unverified), small OLED (SSD1306 I2C), Arduino Nano (spare), batteries / power bank, jumper wires, breadboard.
+Raspberry Pi 3B+ (1GB RAM), USB mic, speaker (3.5mm or USB), piezo buzzer, red/yellow/green LEDs + resistors, joystick (use push-button or stick click), batteries / power bank, jumper wires, breadboard.
 
 ## 4. Architecture
 
@@ -36,12 +36,10 @@ Raspberry Pi 3B+ (1GB RAM), USB mic, speaker (3.5mm or USB), piezo buzzer, red/y
                          │   ├─ Cluster builder + XGBoost risk score + typology label                       │
                          │   ├─ Summary (template, optional Gemini polish) ──► TTS ──► static/audio/*.wav   │
                          │   ├─ SQLite (tx, clusters, accounts, officers, audit log hash-chained)           │
-                         │   ├─ REST + WebSocket (/ws/dashboard, /ws/pi, /ws/auth/{id})                     │
+                         │   ├─ REST + WebSocket (/ws/dashboard, /ws/pi)                                    │
                          │   └─ Serves .wav files at /static/audio/                                         │
                          │                                                                                  │
- Browser (React+Vite) ◄──┤  3D clickable graph, alert feed, attack launcher, metrics page, login page       │
-                         │                                                                                  │
- ESP32 + R307S ──USB────►│  fp_bridge.py (pyserial) ──HTTP, HMAC signed──► /api/auth/fingerprint            │
+ Browser (React+Vite) ◄──┤  3D clickable graph, alert feed, attack launcher, metrics page, audit trail     │
                          └──────────────────────────────────────────────────────────────────────────────────┘
                                      │  Wi-Fi (phone hotspot / laptop hotspot)
                                      ▼
@@ -53,7 +51,7 @@ Raspberry Pi 3B+ (1GB RAM), USB mic, speaker (3.5mm or USB), piezo buzzer, red/y
 
 Key design choices (do not change without agreement):
 - **Pi is a WebSocket CLIENT** of the backend (it dials out). The backend never needs the Pi's IP.
-- **Fingerprint login is isolated**: ESP32 → USB serial → laptop bridge → backend. It never touches the Pi. If one hardware piece dies, the other still works.
+- **Direct compliance access**: The browser dashboard connects directly to the backend with an active compliance officer session, allowing instant investigation and one-click freeze.
 - **TTS runs on the laptop**; the Pi only downloads and plays a pre-made `.wav`.
 - **Voice is keyword-only** ("explain"), via Vosk with a restricted grammar. Joystick button is a silent fallback for the same action.
 - **No Kafka.** The simulator feeds an in-process queue; updates go to the browser over WebSocket.
@@ -65,10 +63,10 @@ Key design choices (do not change without agreement):
 3. Backend detects the pattern, builds the cluster, scores risk, labels typology, writes the summary, generates the `.wav`, persists everything.
 4. Backend pushes an `alert` message to the Pi over `/ws/pi`; browser gets `cluster_alert` and flies the camera to the cluster (nodes turn red).
 5. Pi: LED goes green/yellow/red by risk level, piezo buzzes, mic opens for ~25 s.
-6. Officer says "**explain**" (or presses the joystick). Pi plays the summary, which ends with "Log in to the dashboard for linked accounts."
-7. Officer scans a finger on the ESP32 desk; browser logs in as that officer.
+6. Officer says "**explain**" (or presses the joystick). Pi plays the summary, which ends with "Check the dashboard for linked accounts."
+7. Officer views the cluster on the dashboard; active session immediately displays cluster details.
 8. Officer clicks nodes (account details), reviews linked accounts, approves **Freeze cluster**. Frozen accounts turn ice-blue, further transfers from them are blocked, and the UI shows "₹ prevented".
-9. Metrics page: precision/recall/F1 for baseline vs ours, plus F1-vs-attack-difficulty chart. Audit page shows the hash-chained log (alert → officer ack → login → freeze).
+9. Metrics page: precision/recall/F1 for baseline vs ours, plus F1-vs-attack-difficulty chart. Audit page shows the hash-chained log (alert → officer ack → freeze).
 
 ## 6. Network rules (read before touching Wi-Fi)
 
@@ -87,7 +85,7 @@ AUDIO_FORMAT     = WAV, PCM 16-bit, mono, 22050 Hz (or 16000/44100; Pi plays any
 KEYWORD          = explain
 ```
 
-**HMAC signing (used by Pi ack and fingerprint bridge):**
+**HMAC signing (used by Pi ack):**
 header `X-Signature` = hex of HMAC-SHA256(SHARED_SECRET, raw request body bytes).
 Python reference (both sides use exactly this):
 ```python
@@ -147,32 +145,12 @@ Other messages on the same socket:
 ```
 `event` ∈ `received` (wav downloaded, LED+buzzer started) | `explain_voice` | `explain_joystick` | `played` (finished playing) | `timeout` (no explain within window). Response: `{"ok": true}`.
 
-### 8.4 Fingerprint login (ESP32 → bridge → backend)
-
-**ESP32 → laptop over USB serial, 115200 baud, one JSON object per line:**
-```
-{"event":"ready"}
-{"event":"waiting"}
-{"event":"match","sensor_id":3,"confidence":142}
-{"event":"no_match"}
-{"event":"enroll_ok","sensor_id":3}
-{"event":"error","msg":"sensor not found"}
-```
-**Laptop → ESP32 commands, one line each:** `PING`, `ENROLL:<id>` (id 1–127), `COUNT`, `CLEAR`.
-
-**Browser/backend flow:**
-1. Login page calls `POST /api/auth/challenge` → `{"challenge_id":"L-91ab","expires_at":"<iso, 30s ahead>"}` and opens `ws://<laptop>:8000/ws/auth/L-91ab`.
-2. Bridge polls `GET /api/auth/challenge/pending` → `{"challenge_id":"L-91ab"}` or `{"challenge_id":null}` (every 500 ms).
-3. On ESP32 `match` while a challenge is pending, bridge calls `POST /api/auth/fingerprint` (HMAC signed):
-```json
-{ "challenge_id": "L-91ab", "sensor_id": 3, "confidence": 142 }
-```
-4. Backend maps `sensor_id → officer` (seed: IDs 1,2 → Officer A; IDs 3,4 → Officer B; ID 5 → Admin), then pushes on the auth socket:
-```json
-{ "type": "login_ok", "token": "<jwt>", "officer": {"id":"O-1","name":"Officer A","role":"officer"} }
-```
-or `{"type":"login_failed","reason":"expired|unknown_finger"}`.
-5. Password fallback (for stage safety): `POST /api/auth/password {"username":"officer","password":"demo123"}` → `{token, officer}`.
+### 8.4 Compliance Officer Session (Maker-Checker Authorization)
+The web dashboard operates with a pre-authenticated Compliance Officer session (`Officer A`, role `officer`, ID `O-1`) designed for hackathon stage review:
+- Every action (such as freezing accounts) is authenticated and tied to Officer A in the SHA-256 audit ledger.
+- The JWT bearer token is automatically provided by the dashboard client.
+- Mutate endpoints verify officer/admin role permissions before executing freeze commands.
+- Optional stage safety fallback: `POST /api/auth/password {"username":"officer","password":"demo123"}` → `{token, officer}`.
 
 ### 8.5 REST API (Person 1 implements, all JSON; CORS open)
 | Method + path | Purpose |
@@ -182,15 +160,15 @@ or `{"type":"login_failed","reason":"expired|unknown_finger"}`.
 | `GET /api/graph?cluster_id=C-0007&hops=1` | nodes+links for 3D view (focused subgraph; default = live sampled graph) |
 | `GET /api/clusters`, `GET /api/clusters/{id}` | cluster list / detail (accounts, typology, risk, summary text, timeline) |
 | `GET /api/accounts/{id}` | node details (see 8.6) |
-| `POST /api/clusters/{id}/freeze` | requires JWT; freezes all accounts in cluster; sends `clear` to Pi |
+| `POST /api/clusters/{id}/freeze` | requires JWT / officer session; freezes all accounts in cluster; sends `clear` to Pi |
 | `GET /api/metrics` | precision/recall/F1 baseline vs ours, F1-by-difficulty, latency, ₹ prevented |
 | `GET /api/audit` | hash-chained audit entries |
 | `POST /api/pi/ack` | Pi acknowledgement (8.3) |
-| `POST /api/auth/challenge`, `GET /api/auth/challenge/pending`, `POST /api/auth/fingerprint`, `POST /api/auth/password` | login (8.4) |
+| `POST /api/auth/password` | optional manual auth check |
 | `GET /static/audio/{cluster_id}.wav` | summary audio |
 | `POST /mock/trigger?level=red` | **mock backend only** (see 8.7) |
 
-WebSockets: `/ws/dashboard` (browser events: `tx_batch`, `cluster_alert`, `cluster_updated`, `pi_ack`, `frozen`), `/ws/pi` (8.2), `/ws/auth/{challenge_id}` (8.4).
+WebSockets: `/ws/dashboard` (browser events: `tx_batch`, `cluster_alert`, `cluster_updated`, `pi_ack`, `frozen`), `/ws/pi` (8.2).
 
 ### 8.6 Account (node) detail shape
 ```json
@@ -220,14 +198,14 @@ A tiny FastAPI app `mock_backend.py` implementing `/ws/pi`, `/api/pi/ack`, `/api
 | 0–1 | **[DONE - M0]** Repo, `.env`, **mock_backend.py + sample wavs**, share with Person 2 | Flash/SSH Pi, Wi-Fi via hotspot, install Python deps, test LEDs/piezo/mic/speaker individually | **H1: contracts agreed, mock backend running, Pi reaches it** |
 | 1–5 | **[DONE - M1 & M2]** Simulator + attack generators, graph window, detectors | Pi alert service (WS client, LED, buzzer, wav download/play, joystick) | |
 | 5–8 | **[DONE - M3]** Clusters, features, XGBoost, baseline, metrics | Vosk keyword listener, state machine, ack POSTs, auto-start on boot | **H8: first real alert → Pi lights/buzzes/plays** |
-| 8–12 | FastAPI endpoints, summaries, TTS, 3D dashboard, node panel, attack launcher | ESP32 fingerprint firmware + OLED, enrollment, serial JSON protocol, bridge script | |
-| 12–14 | Freeze flow, audit chain, metrics page, polish | Bridge ↔ real backend login, hardware enclosure/cable tidy, noise testing | **H13: fingerprint login works end to end** |
+| 8–12 | **[DONE - M4a & M4b]** FastAPI endpoints, summaries, TTS, 3D dashboard, node panel, attack launcher | Pi alert integration with real backend, audio speaker playback, physical ack | |
+| 12–14 | **[DONE]** Freeze flow, audit chain, metrics page, polish | Pi alert desk enclosure/cable tidy, noise testing | **H13: physical Pi alert desk works end to end** |
 | 14–16 | Full demo rehearsals (×3), fix bugs, record backup video | Rehearsals, power/cables, spare fallback checks | **No new features after H14** |
 
 ## 11. Cut order if we fall behind (cut from the top)
 
 1. Hash-chained audit page polish, Gemini summary polish (template summary is fine)
-2. Fingerprint login (keep password fallback; mention it as "designed, demo-grade")
+2. Direct dashboard officer bypass (active session enabled by default)
 3. OLED status screens
 4. 3D → keep 2D fallback toggle
 5. Escalation behaviour
@@ -238,23 +216,22 @@ A tiny FastAPI app `mock_backend.py` implementing `/ws/pi`, `/api/pi/ack`, `/api
 1. 20 s: problem (rule-based AML checks one transaction at a time).
 2. 30 s: show live graph, mention hard negatives (payroll, merchants) in normal traffic.
 3. 60 s: launch **Round-trip** → Pi buzzes red → say "explain" → speaker reads summary.
-4. 40 s: fingerprint login → click nodes → show linked accounts → freeze → "₹ prevented".
+4. 40 s: review cluster on dashboard → click nodes → show linked accounts → freeze → "₹ prevented".
 5. 60 s: launch **Stealth hybrid** (amounts under the threshold). Baseline misses it, ours catches it. Show metrics page.
-6. 30 s: architecture slide + limitations (synthetic data, demo-grade biometrics).
+6. 30 s: architecture slide + conclusions.
 
-Fallbacks: joystick instead of voice; password instead of fingerprint; pre-recorded backup video; sample wavs stored on the Pi.
+Fallbacks: joystick instead of voice; pre-recorded backup video; sample wavs stored on the Pi.
 
 ## 13. Likely judge questions
 
 - *Why not just a threshold?* → Show the stealth attack the baseline misses.
 - *Is the data real?* → No, synthetic with ground truth; we say so. IBM synthetic AML dataset can be mentioned as a validation path if time permits.
 - *How does it scale?* → Sliding window bounds graph size; detectors are incremental; prototype not bank-scale.
-- *Biometrics security?* → Demo-grade; production would use a secure element and template protection.
 - *False positives?* → Hard negatives in the data; risk levels so low-risk gets low-urgency alerts.
 
 ## 14. Working rules
 
-- One git repo, two top-level folders: `backend/` + `frontend/` (Person 1), `pi/` + `esp32/` + `bridge/` (Person 2). Commit small, often. Never edit the other person's folder.
+- One git repo: `backend/` + `frontend/` (Person 1), `pi/` (Person 2). Commit small, often.
 - Contract change = message the other person first, then edit THIS file.
-- Test with the mock backend before the real one; test the real thing early, not at hour 14.
-- Keep a printed/phone checklist for demo setup (power, hotspot, backend running, Pi service running, bridge running, sensor enrolled).
+- Test with the real backend on port 8000.
+- Keep a printed/phone checklist for demo setup (power, hotspot, backend running, Pi service running).

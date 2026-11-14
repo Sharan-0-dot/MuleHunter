@@ -71,7 +71,7 @@ export default function AuditPage() {
             Immutable Compliance Audit Trail
           </h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-            Cryptographically linked SHA-256 event log recording alerts, physical Pi desk interactions, officer biometric logins, and freeze orders.
+            Cryptographically linked SHA-256 event log recording alerts, physical Pi desk interactions, officer actions, and freeze orders.
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
