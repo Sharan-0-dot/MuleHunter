@@ -4,23 +4,28 @@ Welcome to the real Mule Hunter backend! This document provides everything you n
 
 ---
 
-## 1. Backend Server Overview
+## 1. Backend Server Overview & Port Configuration
 
-- **Port**: Currently running on **Port 8001** (`REAL_PORT`).
-  > **Note on Port Switch**: When we are ready for final full-system integration, the real backend will move to **Port 8000** (replacing the mock backend).
+- **Current Port**: Currently running on **Port 8001** (`REAL_PORT` in `backend/.env`) to allow testing alongside the mock backend on port 8000.
+- **How to Switch to Port 8000 for Final Demo**:
+  1. Stop the mock backend process (kill process listening on port 8000).
+  2. In `backend/.env`, set:
+     ```bash
+     REAL_PORT=8000
+     ```
+  3. Start the real backend server:
+     ```powershell
+     cd backend
+     .\.venv\Scripts\uvicorn.exe app.main:app --app-dir . --host 0.0.0.0 --port 8000
+     ```
 - **Auto-detected LAN IP**: Automatically bound to your local network IP (e.g., `http://10.63.67.11:8001` or your current hotspot IP).
 - **Shared Secret**: `mulehunter-demo-secret` (used for all HMAC-SHA256 signatures).
-- **Command to launch real backend manually**:
-  ```powershell
-  cd backend
-  .\.venv\Scripts\uvicorn.exe app.main:app --app-dir . --host 0.0.0.0 --port 8001
-  ```
 
 ---
 
-## 2. Triggering Attacks & Controlling Simulation with `curl`
+## 2. Controlling the Simulation & Launching Sized Attacks
 
-You can control the live stream and trigger real laundering rings at any time to test the Pi's alert reception, LED, buzzer, and audio playback:
+You can control the live stream and trigger laundering rings at any time to test the Pi's alert reception, LED, buzzer, and audio playback:
 
 ### Start the simulation stream
 ```bash
@@ -32,28 +37,38 @@ curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/start -H "Content-Type: applica
 curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/stop
 ```
 
-### Reset the simulation stream (clears clusters and resets clock)
+### Reset the simulation stream (clears clusters, alerts, audit log, and resets counters)
 ```bash
 curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/reset
 ```
 
-### Launch an attack ring
+### Launch an attack ring with custom laundering size
 Attack types: `round_trip`, `smurfing`, `mule_chain`, `hybrid`, `stealth`. Difficulty: `1` to `5`.
+The optional `total_amount_inr` scales the ring's total volume to demonstrate urgency bands:
+- **300,000 INR (3 Lakh)** -> **GREEN** alert (0.40 - 0.65)
+- **1,000,000 INR (10 Lakh)** -> **YELLOW** alert (0.65 - 0.85)
+- **2,500,000 INR (25 Lakh)** -> **RED** alert (>= 0.85)
+
 ```bash
-# Example 1: Round Trip (cyclic return, fast detection)
+# Example 1: Green alert test (3 lakh INR)
 curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
   -H "Content-Type: application/json" \
-  -d '{"type": "round_trip", "difficulty": 2}'
+  -d '{"type": "round_trip", "difficulty": 2, "total_amount_inr": 300000}'
 
-# Example 2: Smurfing (fan-out -> fan-in)
+# Example 2: Yellow alert test (10 lakh INR)
 curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
   -H "Content-Type: application/json" \
-  -d '{"type": "smurfing", "difficulty": 3}'
+  -d '{"type": "smurfing", "difficulty": 3, "total_amount_inr": 1000000}'
 
-# Example 3: Hybrid (smurfing + chain + loop)
+# Example 3: Red alert test (25 lakh INR)
 curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
   -H "Content-Type: application/json" \
-  -d '{"type": "hybrid", "difficulty": 2}'
+  -d '{"type": "round_trip", "difficulty": 2, "total_amount_inr": 2500000}'
+
+# Example 4: Stealth ring (structures all hops strictly below 50,000 threshold)
+curl -X POST http://<LAPTOP_LAN_IP>:8001/api/sim/attack \
+  -H "Content-Type: application/json" \
+  -d '{"type": "stealth", "difficulty": 5}'
 ```
 
 ---
@@ -64,7 +79,7 @@ Connect your WebSocket client to:
 `ws://<LAPTOP_LAN_IP>:8001/ws/pi`
 
 ### 1. Alert Message (`type: "alert"`)
-Pushed when a laundering cluster is detected and verified:
+Pushed when a laundering cluster is confirmed by the detection pipeline (exact Master 8.2 contract):
 ```json
 {
   "type": "alert",
@@ -74,17 +89,17 @@ Pushed when a laundering cluster is detected and verified:
   "risk_score": 0.88,
   "typology": "round_tripping",
   "accounts_count": 6,
-  "total_amount_inr": 1250000,
-  "wav_url": "http://<LAPTOP_LAN_IP>:8001/static/audio/C-0001.wav",
+  "total_amount_inr": 2500000,
+  "wav_url": "http://<LAPTOP_LAN_IP>:8001/static/audio/C-0001_v1.wav",
   "listen_seconds": 25,
   "created_at": "2026-11-15T10:42:12Z"
 }
 ```
 - **Actions on Pi**:
   1. Download WAV from `wav_url`.
-  2. Activate LED (Red, Yellow, or Green).
+  2. Activate LED (Red, Yellow, or Green matching `level`).
   3. Sound buzzer pattern matching `level`.
-  4. Post acknowledgement: `event: "received"` via `POST /api/pi/ack`.
+  4. Post acknowledgement: `event: "received"` via `POST /api/pi/ack` (HMAC signed).
   5. Start Vosk keyword listener or joystick listener for `listen_seconds` (25s).
   6. On voice keyword or joystick press: play downloaded audio through speaker and post `event: "explain_voice"` or `event: "explain_joystick"`.
   7. On playback finish: post `event: "played"`.
@@ -110,11 +125,11 @@ Sent if no `explain_*` ack is received within `listen_seconds + 5` (30s total):
 - **Action on Pi**: Intensify LED blink or buzzer tone until acknowledged or cleared.
 
 ### 4. Clear Message (`type: "clear"`)
-Sent when an officer approves a freeze on the dashboard:
+Sent when an officer freezes the cluster on the dashboard:
 ```json
 {
   "type": "clear",
-  "cluster_id": "C-0001"
+  "alert_id": "A-0001"
 }
 ```
 - **Action on Pi**: Turn off LEDs and buzzer; return to idle standby.
@@ -154,8 +169,6 @@ def send_pi_ack(alert_id, event):
 
 ## 5. ESP32 Biometric Desk Unit Integration
 
-The biometric flow works identically on port 8001:
-
 1. **Browser** opens challenge: `POST /api/auth/challenge` -> `{"challenge_id": "L-91ab", "expires_at": "..."}` and connects `ws://<LAPTOP_LAN_IP>:8001/ws/auth/L-91ab`.
 2. **Bridge script** polls `GET /api/auth/challenge/pending` every 500 ms.
 3. On fingerprint match on the ESP32, bridge sends HMAC-signed POST:
@@ -165,8 +178,34 @@ The biometric flow works identically on port 8001:
    Body: {"challenge_id": "L-91ab", "sensor_id": 1, "confidence": 142}
    ```
 4. **Officer Mappings**:
-   - `sensor_id: 1` or `2` -> **Officer A** (`O-1`)
-   - `sensor_id: 3` or `4` -> **Officer B** (`O-2`)
-   - `sensor_id: 5` -> **Admin** (`O-3`)
+   - `sensor_id: 1` or `2` -> **Officer A** (`O-1`) [role: officer]
+   - `sensor_id: 3` or `4` -> **Officer B** (`O-2`) [role: officer]
+   - `sensor_id: 5` -> **Admin** (`O-3`) [role: admin]
 5. Backend broadcasts `{"type": "login_ok", "token": "<jwt>", "officer": {...}}` on `/ws/auth/L-91ab` and logs in the officer.
 6. Fallback password: `POST /api/auth/password {"username": "officer", "password": "demo123"}`.
+
+---
+
+## 6. Account Freeze & Cryptographic Audit Verification
+
+### Freezing a Cluster
+Requires valid JWT (`officer` or `admin` role) in `Authorization: Bearer <jwt>`:
+```bash
+curl -X POST http://<LAPTOP_LAN_IP>:8001/api/clusters/C-0001/freeze \
+  -H "Authorization: Bearer <token>"
+```
+- Blocks all future transactions for accounts in the cluster.
+- Accumulates prevented INR in server telemetry (`/api/metrics`).
+- Sends `clear` to `/ws/pi` to deactivate LEDs/buzzer.
+- Broadcasts `frozen` event to `/ws/dashboard`.
+- Records `freeze` event into the tamper-evident audit trail.
+
+### Verifying the Audit Trail
+```bash
+# Fetch recent audit entries
+curl http://<LAPTOP_LAN_IP>:8001/api/audit?limit=20
+
+# Cryptographically verify SHA-256 hash chain
+curl http://<LAPTOP_LAN_IP>:8001/api/audit/verify
+# Response: {"ok": true, "entries": 6, "first_bad_index": null}
+```

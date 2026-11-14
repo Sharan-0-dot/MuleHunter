@@ -121,6 +121,58 @@ def _compress_ring_span(
     return compressed
 
 
+def _scale_ring_total(
+    ring_tx_list: List,
+    total_amount_inr: Optional[float],
+    difficulty: int,
+    rng: np.random.Generator,
+) -> List:
+    """
+    Scales ring transactions so their total matches total_amount_inr exactly.
+    Preserves timing and splits any chunks >= threshold at difficulty 5.
+    """
+    if total_amount_inr is None or not ring_tx_list:
+        return ring_tx_list
+
+    curr_sum = sum(t.amount for t in ring_tx_list)
+    if curr_sum <= 0:
+        return ring_tx_list
+
+    scale = float(total_amount_inr) / curr_sum
+    scaled_txs = []
+    from app.sim.generator import Transaction
+
+    for t in ring_tx_list:
+        new_amt = round(t.amount * scale, 2)
+        if difficulty == 5 and new_amt >= SIM_NAIVE_THRESHOLD:
+            chunks = _split_into_chunks(new_amt, difficulty, rng)
+            for c_idx, c_amt in enumerate(chunks):
+                scaled_txs.append(
+                    Transaction(
+                        tx_id=t.tx_id,
+                        ts=t.ts + timedelta(seconds=c_idx * 120.0),
+                        src=t.src,
+                        dst=t.dst,
+                        amount=c_amt,
+                        kind=t.kind,
+                    )
+                )
+        else:
+            scaled_txs.append(
+                Transaction(
+                    tx_id=t.tx_id,
+                    ts=t.ts,
+                    src=t.src,
+                    dst=t.dst,
+                    amount=new_amt,
+                    kind=t.kind,
+                )
+            )
+
+    scaled_txs.sort(key=lambda t: t.ts)
+    return scaled_txs
+
+
 def _pick_accounts(
     rng: np.random.Generator,
     accounts: list,
@@ -247,6 +299,7 @@ def inject_smurfing(
     start_ts: datetime,
     difficulty: int = 1,
     ring_id: str = "RING-0001",
+    total_amount_inr: Optional[float] = None,
 ) -> Tuple[List, "GroundTruth"]:
     """
     Smurfing: Source S splits total amount T into k mules;
@@ -265,7 +318,7 @@ def inject_smurfing(
     dst = picked[1 + k]
     decoys = picked[1 + k + 1 :]
 
-    base_volume = BASE_VOLUMES["smurfing"]
+    base_volume = float(total_amount_inr) if total_amount_inr is not None else BASE_VOLUMES["smurfing"]
     # Preserve volume across difficulty: distribute base_volume among mules
     chunk_base = base_volume / k
 
@@ -361,6 +414,8 @@ def inject_smurfing(
 
     transactions.sort(key=lambda t: t.ts)
     ring_tx_list = _compress_ring_span(transactions, max_span_hours=35.0)
+    # Scale to requested total if provided (preserves structure, rescales amounts)
+    ring_tx_list = _scale_ring_total(ring_tx_list, total_amount_inr, difficulty, rng)
     laundering_accounts = {t.src for t in ring_tx_list} | {t.dst for t in ring_tx_list}
 
     first_ts = ring_tx_list[0].ts
@@ -394,6 +449,7 @@ def inject_round_trip(
     start_ts: datetime,
     difficulty: int = 1,
     ring_id: str = "RING-0002",
+    total_amount_inr: Optional[float] = None,
 ) -> Tuple[List, "GroundTruth"]:
     """
     Round-trip: Cycle of 3-6 accounts; money returns to origin minus fee.
@@ -409,7 +465,7 @@ def inject_round_trip(
     cycle_accounts = picked[:cycle_len]
     decoys = picked[cycle_len:]
 
-    base_volume = BASE_VOLUMES["round_trip"]
+    base_volume = float(total_amount_inr) if total_amount_inr is not None else BASE_VOLUMES["round_trip"]
     initial_amount = base_volume
     retention_min, retention_max = cfg["retention_range"]
 
@@ -505,6 +561,8 @@ def inject_round_trip(
 
     transactions.sort(key=lambda t: t.ts)
     ring_tx_list = _compress_ring_span(transactions, max_span_hours=35.0)
+    # Scale to requested total if provided
+    ring_tx_list = _scale_ring_total(ring_tx_list, total_amount_inr, difficulty, rng)
     laundering_accounts = {t.src for t in ring_tx_list} | {t.dst for t in ring_tx_list}
 
     first_ts = ring_tx_list[0].ts
@@ -538,6 +596,7 @@ def inject_mule_chain(
     start_ts: datetime,
     difficulty: int = 1,
     ring_id: str = "RING-0003",
+    total_amount_inr: Optional[float] = None,
 ) -> Tuple[List, "GroundTruth"]:
     """
     Mule Chain: Linear chain of 4-8 accounts; each forwards 95-99% within delay window.
@@ -553,7 +612,7 @@ def inject_mule_chain(
     chain_accounts = picked[:chain_len]
     decoys = picked[chain_len:]
 
-    base_volume = BASE_VOLUMES["mule_chain"]
+    base_volume = float(total_amount_inr) if total_amount_inr is not None else BASE_VOLUMES["mule_chain"]
     current_amount = base_volume
     retention_min, retention_max = cfg["retention_range"]
 
@@ -643,6 +702,8 @@ def inject_mule_chain(
 
     transactions.sort(key=lambda t: t.ts)
     ring_tx_list = _compress_ring_span(transactions, max_span_hours=35.0)
+    # Scale to requested total if provided
+    ring_tx_list = _scale_ring_total(ring_tx_list, total_amount_inr, difficulty, rng)
     laundering_accounts = {t.src for t in ring_tx_list} | {t.dst for t in ring_tx_list}
 
     first_ts = ring_tx_list[0].ts
@@ -676,6 +737,7 @@ def inject_hybrid(
     start_ts: datetime,
     difficulty: int = 1,
     ring_id: str = "RING-0004",
+    total_amount_inr: Optional[float] = None,
 ) -> Tuple[List, "GroundTruth"]:
     """
     Hybrid: Smurfing -> chain -> cycle back to source.
@@ -694,7 +756,7 @@ def inject_hybrid(
     chain_nodes = picked[1 + num_mules : 1 + num_mules + chain_len]
     decoys = picked[1 + num_mules + chain_len :]
 
-    base_volume = BASE_VOLUMES["hybrid"]
+    base_volume = float(total_amount_inr) if total_amount_inr is not None else BASE_VOLUMES["hybrid"]
     chunk_base = base_volume / num_mules
     retention_min, retention_max = cfg["retention_range"]
 
@@ -824,6 +886,8 @@ def inject_hybrid(
 
     transactions.sort(key=lambda t: t.ts)
     ring_tx_list = _compress_ring_span(transactions, max_span_hours=35.0)
+    # Scale to requested total if provided
+    ring_tx_list = _scale_ring_total(ring_tx_list, total_amount_inr, difficulty, rng)
     laundering_accounts = {t.src for t in ring_tx_list} | {t.dst for t in ring_tx_list}
 
     first_ts = ring_tx_list[0].ts
@@ -857,6 +921,7 @@ def inject_stealth(
     start_ts: datetime,
     difficulty: int = 5,
     ring_id: str = "RING-0005",
+    total_amount_inr: Optional[float] = None,
 ) -> Tuple[List, "GroundTruth"]:
     """
     Stealth: ALWAYS runs at difficulty 5, ignoring the difficulty argument.
@@ -868,13 +933,13 @@ def inject_stealth(
     base_type = str(rng.choice(base_types))
 
     if base_type == "smurfing":
-        txs, gt = inject_smurfing(rng, accounts, start_ts, difficulty=5, ring_id=ring_id)
+        txs, gt = inject_smurfing(rng, accounts, start_ts, difficulty=5, ring_id=ring_id, total_amount_inr=total_amount_inr)
     elif base_type == "round_trip":
-        txs, gt = inject_round_trip(rng, accounts, start_ts, difficulty=5, ring_id=ring_id)
+        txs, gt = inject_round_trip(rng, accounts, start_ts, difficulty=5, ring_id=ring_id, total_amount_inr=total_amount_inr)
     elif base_type == "mule_chain":
-        txs, gt = inject_mule_chain(rng, accounts, start_ts, difficulty=5, ring_id=ring_id)
+        txs, gt = inject_mule_chain(rng, accounts, start_ts, difficulty=5, ring_id=ring_id, total_amount_inr=total_amount_inr)
     else:
-        txs, gt = inject_hybrid(rng, accounts, start_ts, difficulty=5, ring_id=ring_id)
+        txs, gt = inject_hybrid(rng, accounts, start_ts, difficulty=5, ring_id=ring_id, total_amount_inr=total_amount_inr)
 
     gt.ring_type = "stealth"
     gt.difficulty = 5
@@ -889,17 +954,18 @@ def inject_attack(
     start_ts: datetime,
     difficulty: int = 1,
     ring_id: str = "RING-0001",
+    total_amount_inr: Optional[float] = None,
 ) -> Tuple[List, "GroundTruth"]:
     """Dispatch to specific attack injector by name."""
     if attack_type == "smurfing":
-        return inject_smurfing(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id)
+        return inject_smurfing(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id, total_amount_inr=total_amount_inr)
     elif attack_type == "round_trip":
-        return inject_round_trip(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id)
+        return inject_round_trip(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id, total_amount_inr=total_amount_inr)
     elif attack_type == "mule_chain":
-        return inject_mule_chain(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id)
+        return inject_mule_chain(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id, total_amount_inr=total_amount_inr)
     elif attack_type == "hybrid":
-        return inject_hybrid(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id)
+        return inject_hybrid(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id, total_amount_inr=total_amount_inr)
     elif attack_type == "stealth":
-        return inject_stealth(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id)
+        return inject_stealth(rng, accounts, start_ts, difficulty=difficulty, ring_id=ring_id, total_amount_inr=total_amount_inr)
     else:
         raise ValueError(f"Unknown attack type: {attack_type}")

@@ -9,7 +9,7 @@
 | **M2** | Detectors (sliding window, fan-out/in, cycles, mule chains, reconvergence) + cluster builder (`window.py`, `patterns.py`, `clusters.py`, `detect_check.py`) | **Done (Step A quality fixes passed)** |
 | **M3** | XGBoost risk model, baseline threshold rule, evaluation script (`evaluate.py`) | **Done** |
 | **M4a** | Live pipeline: simulator -> detection -> model -> alert -> summary -> wav -> push to Pi and dashboard (`engine.py`, `main.py`, `test_real.py`, `soak_real.py`) | **Done** |
-| **M4b** | Backend hardening (fingerprint JWT protection on mutate endpoints, freeze endpoint, hash-chained audit log) | Not Started |
+| **M4b** | Backend hardening (fingerprint JWT protection on mutate endpoints, freeze endpoint, hash-chained audit log) | **Done** |
 | **M5** | Frontend 3D dashboard (React + Vite + `react-force-graph-3d`) | **Done** |
 | **M6** | Integration rehearsals, metrics page, audit verification, demo rehearsals | Not Started |
 
@@ -86,6 +86,33 @@
 - **Step 8 — Hardware Teammate Handoff (`FRIEND_HANDOFF.md`)**:
   - Complete guide created detailing port 8001 endpoints, curl commands, WebSocket schemas, HMAC signing, and biometric mappings.
 
+### Milestone M4b (Completed)
+- **Live Pipeline Fixes & Diagnostic Resolution**:
+  - Root cause of 320 false alerts / sim-hour identified: streaming path generated payroll & large purchases every 500ms due to misapplied `max(1, ...)` thresholds.
+  - Unified `TransactionStream` with `generate_dataset` code path (identical 6,431 txs, identical kind mix, identical amount distribution across 24h).
+  - Implemented `engine.run_headless(sim_hours, attacks=[...])` advancing identical detection, window, clustering, and tracker code without wall-clock sleeps (48h replay in 25.5s).
+  - Tracker continuity: Replaced Jaccard with overlap coefficient matching ($|A \cap B| / \min(|A|,|B|) \ge 0.5$) with 4-tick grace retention.
+  - Alert hygiene: `confirm_ticks=2` consecutive ticks required before initial alert; re-alerting restricted to upward band jumps.
+  - Gate G1 Passed: 0.000 false alerts / sim-hour (limit $\le 2.0$), 5/6 rings alerted (limit $\ge 5$), mean tick runtime 60.68ms.
+- **Severity Scoring & Dynamic Ring Sizing**:
+  - Alert trigger decoupled from urgency severity: trigger on $p \ge 0.40$, composite $\text{risk\_score} = 0.5 \cdot p + 0.5 \cdot \text{exposure}$, where $\text{exposure} = \min(1, \frac{\text{total\_amount\_inr}}{2,500,000})$.
+  - Verified sizing on round_trip diff 2: 3 Lakh -> GREEN, 10 Lakh -> YELLOW, 25 Lakh -> RED.
+  - Exposes `risk_components: {"probability": p, "exposure": exposure}` on `/api/clusters/{id}` and dashboard WebSocket event.
+  - Updated `00_MASTER.md` sections 8.1 and 8.5.
+- **Login-Protected Freeze & Real-Time Defense Signals**:
+  - `POST /api/clusters/{id}/freeze` enforces `Authorization: Bearer <jwt>` with role `officer` or `admin` (401 on unauthorized).
+  - Marks accounts frozen; engine drops subsequent transactions and accumulates `prevented_inr`.
+  - Pushes `clear` with `alert_id` to `/ws/pi` (turns off LEDs/buzzer).
+  - Broadcasts `frozen` event to `/ws/dashboard`.
+  - `/api/sim/reset` clears frozen accounts and counters cleanly.
+- **Cryptographic Tamper-Evident Audit Trail**:
+  - `audit_log` table with `hash = sha256(prev_hash + canonical_json)`.
+  - Logs `alert_created`, `pi_ack`, `escalate`, `login_ok`, `login_failed`, and `freeze`.
+  - `GET /api/audit?limit=50` and `GET /api/audit/verify -> {"ok": bool, "entries": n, "first_bad_index": null}`.
+  - `backend/scripts/tamper_demo.py`: Demonstrates direct database tampering immediately flipping verification to `ok=False`.
+- **End-to-End Contract Verification (`backend/scripts/test_real.py`)**:
+  - 100% pass across all 11 integration checks on port 8001.
+
 ### Milestone M5 (Completed)
 - **Frontend Architecture (`frontend/`)**:
   - Stack: Vite + React 18, `react-router-dom`, `react-force-graph-3d`, `react-force-graph-2d`, `three`, `recharts`.
@@ -95,30 +122,26 @@
   - `/login`: Biometric desk sensor challenge flow (`POST /api/auth/challenge`, `/ws/auth/{id}`, 30s countdown, mock finger tap trigger, password fallback).
   - `/` (Dashboard): Top bar (start/stop/reset/speed, live counters, WS status, officer chip), Alert feed (level badges, human-readable typologies, Lakh/Crore amounts, Pi status badges, click focus, 100-alert cap), 3D Force Graph (in-place node coordinate merging, camera flying, risk/frozen coloring, link particles, click inspect, 2D fallback, 600 node cap), Detail panel (Master 8.6 fields, recent tx, freeze cluster action), and Adversarial Attack Launcher (5 typologies, difficulty slider, ring volume sizes).
   - `/metrics`: Synthetic data validation split banner, precision/recall/F1 benchmark table, Recharts line chart of F1 vs difficulty 1–5, stealth scenario breakdown, latency, prevented INR.
-  - `/audit`: Hash-chained SHA-256 audit log viewer with Verify Chain action (gracefully tolerant of 404 while M4b is in progress).
+  - `/audit`: Hash-chained SHA-256 audit log viewer with Verify Chain action connected to live `/api/audit` and `/api/audit/verify`.
 - **Build Verification**: `npm run build` passes with 0 errors. Run instructions documented in `frontend/README.md`.
 
 ---
 
-## Files Created / Modified in M4a
+## Files Created / Modified in M4b
 
-- `backend/.env`
-- `backend/.env.example`
-- `backend/app/config.py`
-- `backend/app/detect/model.py`
-- `backend/app/detect/tracker.py`
-- `backend/scripts/evaluate.py`
-- `backend/data/metrics_val_full.json`
-- `backend/app/db.py`
-- `backend/data/mulehunter.db`
-- `backend/app/summary/__init__.py`
-- `backend/app/summary/templates.py`
-- `backend/app/summary/llm.py`
-- `backend/app/summary/tts.py`
+- `backend/app/audit.py`
 - `backend/app/engine.py`
 - `backend/app/main.py`
-- `backend/scripts/test_real.py`
+- `backend/app/sim/generator.py`
+- `backend/app/sim/attacks.py`
+- `backend/app/detect/tracker.py`
+- `backend/app/db.py`
 - `backend/scripts/soak_real.py`
+- `backend/scripts/test_real.py`
+- `backend/scripts/tamper_demo.py`
+- `backend/scripts/test_sizing.py`
+- `backend/scripts/compare_traffic.py`
+- `00_MASTER.md`
 - `FRIEND_HANDOFF.md`
 - `PROJECT_STATUS.md`
 - `NOTES.md`
@@ -127,20 +150,19 @@
 
 ## Known Issues
 
-- **High-speed stream false alert rate**: During 10x sim speed soak testing, legitimate payroll fan-out and merchant fan-in clusters occasionally trigger candidate alerts. The calibrated risk bands and hardware voice escalation safeguard against disruptive false alarms, and M4b freeze authorization ensures human confirmation before account locking.
-- **Mock backend remains active**: `backend/mock_backend.py` is running untouched on port 8000 for hardware partner testing until instructed to switch.
+- **Port 8000 Mock Backend**: `backend/mock_backend.py` is running untouched on port 8000 for hardware partner testing.
+- **Port 8001 Real Backend**: Real backend running with 100% contract compliance on port 8001 (`REAL_PORT`). Ready to move to port 8000 when team gives the signal.
 
 ---
 
 ## Decisions Made
 
-- **Strict Port Isolation**: Real backend developed and validated on port 8001 (`REAL_PORT`), preserving port 8000 for the teammate's ongoing hardware tests.
-- **Audio Synthesis Safety**: `pyttsx3` operations protected by timeout-guarded threading locks with automatic fallback to pre-made alert WAVs.
-- **Zero Label Leakage**: Ground truth registry strictly isolated server-side for automated validation; completely excluded from client payloads and detection inputs.
+- **One Traffic Generator**: Replaced divergent streaming generator with chunks drawn from `generate_dataset` for zero distribution shift between batch and streaming.
+- **Overlap Matching with Grace**: Overlap coefficient matching preserves cluster identity during temporal evolution, and 4-tick grace retention prevents cluster ID fragmentation.
+- **Composite Urgency Scoring**: Decoupled binary detection confidence from urgency severity by incorporating transaction volume exposure ($\text{risk\_score} = 0.5 \cdot p + 0.5 \cdot \text{exposure}$).
 
 ---
 
 ## What's Next
 
-- **Milestone M4b**: Backend hardening (JWT protection on mutate endpoints, account freeze execution, hash-chained audit logging).
-- **Milestone M5**: Frontend 3D graph dashboard (React + Vite + `react-force-graph-3d`).
+- **Milestone M6**: Final system rehearsal, live Pi hardware pairing, and pitch deck preparation.

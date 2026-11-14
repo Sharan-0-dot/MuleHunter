@@ -32,7 +32,9 @@ def get_db_connection() -> sqlite3.Connection:
 
 
 def init_db():
-    """Initializes tables and seeds hardware officer credentials."""
+    """Initializes tables, seeds hardware officer credentials, and creates audit table."""
+    from app.audit import init_audit_table
+    init_audit_table()
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -143,6 +145,8 @@ def get_max_alert_id() -> int:
 
 def clear_db():
     """Clears alerts and cluster history on simulation reset."""
+    from app.audit import clear_audit
+    clear_audit()
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM alerts")
@@ -306,6 +310,14 @@ def get_cluster_detail(cluster_id: str) -> Optional[dict]:
     res["features"] = json.loads(res["features_json"])
     del res["accounts_json"]
     del res["features_json"]
+
+    # Expose p and exposure as risk_components per Step 2
+    prob = res["features"].get("probability", res["risk_score"])
+    exposure = res["features"].get(
+        "exposure", min(1.0, float(res["features"].get("total_amount", 0.0)) / 2_500_000.0)
+    )
+    res["risk_components"] = {"probability": round(prob, 4), "exposure": round(exposure, 4)}
+
     res["alerts"] = alerts
     res["pi_events"] = pi_events
     return res

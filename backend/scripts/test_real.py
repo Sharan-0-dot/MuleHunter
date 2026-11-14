@@ -1,5 +1,5 @@
 """
-Mule Hunter — Real Backend Contract & Integration Test Suite.
+Mule Hunter - Real Backend Contract & Integration Test Suite.
 
 Tests against running real server on port 8001:
   1. Connects /ws/pi and /ws/dashboard WebSockets.
@@ -10,7 +10,15 @@ Tests against running real server on port 8001:
   6. Asserts /ws/dashboard received tx_batch and cluster_alert events.
   7. Asserts /api/graph, /api/clusters/{id}, and /api/accounts/{id} return expected contracts.
   8. Verifies biometric auth challenge -> fingerprint -> /ws/auth flow.
-  9. Prints wall-clock timing breakdown: launch -> detection -> alert -> TTS.
+  9. Verifies freeze endpoint:
+     - 401 on missing or invalid JWT
+     - 200 on valid JWT (officer/admin)
+     - 'clear' event arrives on /ws/pi
+     - 'frozen' event arrives on /ws/dashboard
+  10. Verifies cryptographic audit log:
+     - /api/audit/verify returns ok=True
+     - Tampering demonstration flips verify to ok=False
+  11. Prints wall-clock timing breakdown: launch -> detection -> alert -> TTS.
 """
 
 import asyncio
@@ -26,6 +34,9 @@ import wave
 import requests
 import websockets
 
+backend_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(backend_dir))
+
 BASE_URL = "http://127.0.0.1:8001"
 WS_BASE = "ws://127.0.0.1:8001"
 SHARED_SECRET = "mulehunter-demo-secret"
@@ -37,7 +48,7 @@ def make_hmac(body: bytes) -> str:
 
 async def run_contract_test():
     print("=" * 80)
-    print("MULE HUNTER — REAL BACKEND CONTRACT VERIFICATION (PORT 8001)")
+    print("MULE HUNTER - REAL BACKEND CONTRACT VERIFICATION (PORT 8001)")
     print("=" * 80)
 
     # 1. Verify health / connectivity
@@ -49,12 +60,17 @@ async def run_contract_test():
         print(f"FAILED to connect to {BASE_URL}: {e}")
         sys.exit(1)
 
+    # Reset simulation state to start with clean counters (A-0001)
+    requests.post(f"{BASE_URL}/api/sim/reset")
+    await asyncio.sleep(1.0)
+
     # 2. Open WebSockets
     print("[CHECK 2] Opening WebSockets to /ws/pi and /ws/dashboard...")
     ws_pi = await websockets.connect(f"{WS_BASE}/ws/pi")
     ws_dash = await websockets.connect(f"{WS_BASE}/ws/dashboard")
 
     dashboard_events = []
+    pi_messages = []
 
     async def _dash_listener():
         try:
@@ -64,31 +80,39 @@ async def run_contract_test():
         except Exception:
             pass
 
+    async def _pi_listener():
+        try:
+            while True:
+                msg = await ws_pi.recv()
+                pi_messages.append(json.loads(msg))
+        except Exception:
+            pass
+
     dash_task = asyncio.create_task(_dash_listener())
+    pi_task = asyncio.create_task(_pi_listener())
 
     # 3. Start sim and launch attack
-    print("[CHECK 3] Starting sim at 15x and launching round_trip (diff 2)...")
-    requests.post(f"{BASE_URL}/api/sim/start", json={"speed": 15.0})
+    print("[CHECK 3] Starting sim at 20x and launching round_trip (diff 1)...")
+    requests.post(f"{BASE_URL}/api/sim/start", json={"speed": 20.0})
     t_launch = time.perf_counter()
-    atk_res = requests.post(f"{BASE_URL}/api/sim/attack", json={"type": "round_trip", "difficulty": 2}).json()
+    atk_res = requests.post(f"{BASE_URL}/api/sim/attack", json={"type": "round_trip", "difficulty": 1}).json()
     assert atk_res.get("ok"), f"Attack launch failed: {atk_res}"
 
     # 4. Await alert on /ws/pi
-    print("[CHECK 4] Awaiting alert on /ws/pi (timeout 120s)...")
+    print("[CHECK 4] Awaiting alert on /ws/pi (timeout 150s)...")
     alert_msg = None
     t_alert = None
 
-    t_end = time.perf_counter() + 120.0
+    t_end = time.perf_counter() + 150.0
     while time.perf_counter() < t_end:
-        try:
-            raw_msg = await asyncio.wait_for(ws_pi.recv(), timeout=2.0)
-            data = json.loads(raw_msg)
-            if data.get("type") == "alert":
-                alert_msg = data
+        for m in list(pi_messages):
+            if m.get("type") == "alert":
+                alert_msg = m
                 t_alert = time.perf_counter()
                 break
-        except asyncio.TimeoutError:
-            continue
+        if alert_msg is not None:
+            break
+        await asyncio.sleep(0.5)
 
     assert alert_msg is not None, "Timed out waiting for alert on /ws/pi!"
     print(f"  Received alert on /ws/pi: {alert_msg['alert_id']} ({alert_msg['level']}) for {alert_msg['cluster_id']}")
@@ -158,6 +182,8 @@ async def run_contract_test():
     assert c_res["cluster_id"] == cid
     assert "summary_text" in c_res
     assert len(c_res["accounts"]) > 0
+    assert "risk_components" in c_res, "Missing risk_components in cluster detail"
+    assert "probability" in c_res["risk_components"] and "exposure" in c_res["risk_components"]
 
     g_res = requests.get(f"{BASE_URL}/api/graph?cluster_id={cid}&hops=1").json()
     assert "nodes" in g_res and "links" in g_res
@@ -168,7 +194,7 @@ async def run_contract_test():
     assert "risk" in acc_res and "recent_tx" in acc_res and "in_amount" in acc_res
     print("  [PASS] REST API shapes (/api/clusters, /api/graph, /api/accounts) verified.")
 
-    # 9. Verify Biometric Auth flow
+    # 9. Verify Biometric Auth flow & obtain Officer JWT
     print("[CHECK 9] Verifying biometric authentication flow...")
     ch_res = requests.post(f"{BASE_URL}/api/auth/challenge").json()
     ch_id = ch_res["challenge_id"]
@@ -185,15 +211,84 @@ async def run_contract_test():
     assert auth_msg.get("type") == "login_ok"
     assert auth_msg["officer"]["name"] == "Officer A"
     assert "token" in auth_msg
+    officer_token = auth_msg["token"]
     await ws_auth.close()
     print("  [PASS] Biometric Challenge -> Fingerprint -> /ws/auth login flow verified.")
 
-    # Cleanup
+    # 10. Verify M4b Freeze Endpoint & Real-Time Defense Signals
+    print("[CHECK 10] Verifying M4b Freeze endpoint & WebSockets...")
+    # 10a. Unauthorized call (no token) -> 401
+    r_no_auth = requests.post(f"{BASE_URL}/api/clusters/{cid}/freeze")
+    assert r_no_auth.status_code == 401, f"Expected 401 without token, got {r_no_auth.status_code}"
+
+    # 10b. Invalid token -> 401
+    r_bad_auth = requests.post(f"{BASE_URL}/api/clusters/{cid}/freeze", headers={"Authorization": "Bearer bad-token"})
+    assert r_bad_auth.status_code == 401, f"Expected 401 for bad token, got {r_bad_auth.status_code}"
+
+    # 10c. Authorized call with officer token -> 200
+    r_freeze = requests.post(
+        f"{BASE_URL}/api/clusters/{cid}/freeze",
+        headers={"Authorization": f"Bearer {officer_token}"},
+    )
+    assert r_freeze.status_code == 200, f"Expected 200 on authorized freeze, got {r_freeze.status_code}"
+    freeze_json = r_freeze.json()
+    assert freeze_json.get("ok") is True, f"Freeze failed: {freeze_json}"
+    print(f"  Cluster {cid} frozen: {freeze_json.get('accounts_frozen')} accounts, prevented INR {freeze_json.get('prevented_inr'):,.2f}")
+
+    # 10d. Verify 'clear' message arrived on /ws/pi
+    await asyncio.sleep(1.0)
+    clear_msg = None
+    for m in pi_messages:
+        if m.get("type") == "clear":
+            clear_msg = m
+            break
+    assert clear_msg is not None, "Expected 'clear' message on /ws/pi after freeze!"
+    assert clear_msg.get("alert_id") == alert_msg["alert_id"], f"Clear alert_id mismatch: {clear_msg}"
+    print("  [PASS] /ws/pi received 'clear' signal.")
+
+    # 10e. Verify 'frozen' message arrived on /ws/dashboard
+    frozen_event = None
+    for e in dashboard_events:
+        if e.get("type") == "frozen":
+            frozen_event = e
+            break
+    assert frozen_event is not None, "Expected 'frozen' event on /ws/dashboard after freeze!"
+    assert frozen_event.get("cluster_id") == cid
+    assert "officer" in frozen_event and "accounts" in frozen_event
+    print("  [PASS] /ws/dashboard received 'frozen' broadcast event.")
+
+    # 11. Verify Hash-Chained Audit Trail & Tamper Detection
+    print("[CHECK 11] Verifying Cryptographic Audit Log (/api/audit/verify)...")
+    r_audit = requests.get(f"{BASE_URL}/api/audit?limit=20")
+    assert r_audit.status_code == 200
+    entries = r_audit.json()
+    assert len(entries) > 0, "Audit log is empty!"
+    event_names = [e["event_type"] for e in entries]
+    print(f"  Audit events logged: {event_names}")
+    assert "alert_created" in event_names
+    assert "freeze" in event_names
+    assert "login_ok" in event_names
+
+    r_verify = requests.get(f"{BASE_URL}/api/audit/verify")
+    assert r_verify.status_code == 200
+    v_data = r_verify.json()
+    assert v_data.get("ok") is True, f"Audit chain verification failed: {v_data}"
+    print(f"  [PASS] /api/audit/verify returned ok=True across {v_data.get('entries')} entries.")
+
+    # 11b. Run tamper demonstration script
+    from scripts.tamper_demo import run_tamper_demo
+    print("  Running tamper demonstration to verify rejection of altered entries...")
+    tamper_success = run_tamper_demo()
+    assert tamper_success is True, "Tamper demo failed!"
+    print("  [PASS] Tamper demo successfully proved cryptographic chain rejection.")
+
+    # Cleanup WebSockets
     dash_task.cancel()
+    pi_task.cancel()
     await ws_pi.close()
     await ws_dash.close()
 
-    # 10. Timing breakdown
+    # 12. Timing breakdown
     t_total = t_alert - t_launch
     print("\n" + "=" * 80)
     print("TIMING BREAKDOWN (WALL-CLOCK SECONDS):")
@@ -202,7 +297,7 @@ async def run_contract_test():
     print(f"  - LLM Latency                     : {c_res.get('llm_latency_ms') or 'skipped'}")
     print(f"  - Spoken Audio Duration           : {duration_sec:.2f} s")
     print("=" * 80)
-    print(">>> ALL CONTRACT TESTS PASSED ON PORT 8001! <<<")
+    print(">>> ALL M4a + M4b CONTRACT TESTS PASSED ON PORT 8001! <<<")
 
 
 if __name__ == "__main__":

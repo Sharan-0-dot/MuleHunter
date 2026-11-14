@@ -100,11 +100,22 @@ Backend rejects missing/invalid signatures with 401.
 ## 8. Interface contracts (SINGLE SOURCE OF TRUTH)
 
 ### 8.1 Risk levels
-`risk_score` is 0–1 from the cluster model. Alerts are only raised for `risk_score >= 0.40`.
-- `green`: 0.40 – 0.65 (low)
+`risk_score` is a **composite severity** in [0, 1] combining model probability and exposure:
+
+```
+p        = calibrated model probability (triggers alert when p >= 0.40)
+exposure = min(1.0, total_amount_inr / 2,500,000)
+risk_score = 0.5 * p + 0.5 * exposure
+```
+
+Alerts are only raised when `p >= ALERT_MIN (0.40)`. Urgency bands apply to the composite `risk_score`:
+- `green`:  0.40 – 0.65 (low)
 - `yellow`: 0.65 – 0.85 (medium)
-- `red`: >= 0.85 (high)
-Severity is **risk**, not just amount. (Thresholds are tunable by Person 1; the three level names are fixed.)
+- `red`:    >= 0.85 (high)
+
+`risk_components: {"probability": p, "exposure": exposure}` is exposed on `GET /api/clusters/{id}` and the `cluster_alert` dashboard WebSocket event (not on the Pi alert payload).
+
+Severity is **composite risk**, not just amount. (Thresholds are tunable by Person 1; the three level names are fixed.)
 
 ### 8.2 Alert: backend → Pi (WebSocket `ws://<laptop>:8000/ws/pi`)
 ```json
@@ -167,7 +178,7 @@ or `{"type":"login_failed","reason":"expired|unknown_finger"}`.
 | Method + path | Purpose |
 |---|---|
 | `POST /api/sim/start`, `/stop`, `/reset` | control background traffic (`start` body: `{"speed":1..20}`) |
-| `POST /api/sim/attack` | body `{"type":"smurfing\|round_trip\|mule_chain\|hybrid\|stealth","difficulty":1..5}` |
+| `POST /api/sim/attack` | body `{"type":"smurfing\|round_trip\|mule_chain\|hybrid\|stealth","difficulty":1..5,"total_amount_inr":300000}` (`total_amount_inr` optional; scales ring total; stealth always structures below 50k threshold) |
 | `GET /api/graph?cluster_id=C-0007&hops=1` | nodes+links for 3D view (focused subgraph; default = live sampled graph) |
 | `GET /api/clusters`, `GET /api/clusters/{id}` | cluster list / detail (accounts, typology, risk, summary text, timeline) |
 | `GET /api/accounts/{id}` | node details (see 8.6) |

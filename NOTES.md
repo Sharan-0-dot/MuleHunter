@@ -229,3 +229,45 @@ p100         | 1.0000               | 0.3208
 # Run 10-minute real-time soak test
 .\backend\.venv\Scripts\python.exe backend\scripts\soak_real.py
 ```
+
+---
+
+### Milestone M4b: Live Pipeline Hardening, Severity Scoring, Account Freeze & Audit Chain (2026-11-14)
+
+#### Root Cause Analysis: False Alert Explosion & Counter Drift
+1. **First Alert `A-0569` in earlier runs**: SQLite database `alerts` table had accumulated alerts from unreset earlier soak test runs, causing `Engine.__init__` to load `get_max_alert_id() + 1 = 569`. Resolved by resetting alert and cluster counters cleanly on startup and on `/api/sim/reset`.
+2. **False Alert Explosion (320 false alerts in soak)**: The live streaming generator called `_generate_legit_traffic(..., dt_sec/3600.0)` every 500ms. Because of `max(1, int(round(10 * duration/24)))` on payroll and `max(5, int(round(1.5 * duration)))` on large purchases, each 5-second slice generated an entire payroll run and 5 large purchases (>60k INR). Over 24 sim-hours, this injected 374,630 transactions and 86,400 large purchases instead of the intended 6,431 transactions!
+3. **Fix**: `TransactionStream` unified to draw directly from the `generate_dataset` code path in time chunks. Diagnostic comparison confirmed 100% exact match across all dimensions (6,431 vs 6,431 txs, identical kind mix, identical percentiles, 268 tx/hr).
+
+#### Gate G1 Replay Results (`backend/scripts/soak_real.py`):
+```
+================================================================================
+MULE HUNTER - 48 SIM-HOUR HEADLESS SOAK REPLAY
+================================================================================
+  - Simulated Hours Advanced       : 48.0 sim-hours
+  - Wall-Clock Execution Time      : 25.55 s
+  - Total Alerts Raised            : 14
+  - True Alerts (Ring Matched)     : 14
+  - False Alerts (Legit Only)      : 0
+  - False Alerts / Sim-Hour        : 0.000 (GATE G1 limit <= 2.0) [PASSED]
+  - Rings Alerted                  : 5 / 6 (GATE G1 limit >= 5)   [PASSED]
+  - Alerts By Band                 : {'green': 7, 'yellow': 5, 'red': 2}
+  - Mean Detection Tick Runtime    : 60.68 ms
+  - Mean Time to Alert             : 470.3 sim-min
+================================================================================
+>>> GATE G1 PASSED: false alerts <= 2/hr and >= 5/6 rings alerted! <<<
+```
+
+#### Step 2 Severity Scoring & Sizing Results:
+- Formula: $\text{risk\_score} = 0.5 \cdot p + 0.5 \cdot \text{exposure}$, where $\text{exposure} = \min(1, \frac{\text{total\_amount\_inr}}{2,500,000})$.
+- Dynamic Sizing Validation (`backend/scripts/test_sizing.py`):
+  - 3 Lakh INR (300,000)   -> Risk 0.5899 -> **GREEN**
+  - 10 Lakh INR (1,000,000) -> Risk 0.7997 -> **YELLOW**
+  - 25 Lakh INR (2,500,000) -> Risk 1.0000 -> **RED**
+
+#### Step 4 M4b Features & Contract Verification (`backend/scripts/test_real.py`):
+- `POST /api/clusters/{id}/freeze`: 401 without JWT / bad token, 200 with officer JWT.
+- Defense signals: `clear` dispatched to `/ws/pi`, `frozen` broadcast to `/ws/dashboard`.
+- Cryptographic Audit Log: SHA-256 hash-chained entries. Verified with `GET /api/audit/verify` (ok=True).
+- Tamper Demonstration (`backend/scripts/tamper_demo.py`): Confirmed immediate rejection when SQLite row is modified (verify flips to `ok=False` pinpointing bad row).
+- 100% of integration checks passed on port 8001.

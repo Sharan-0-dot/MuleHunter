@@ -47,6 +47,7 @@ from app.db import (
     list_clusters,
     get_cluster_detail,
 )
+from app.audit import append_audit, list_audit, verify_audit
 
 METRICS_VAL_FULL_PATH = backend_dir / "data" / "metrics_val_full.json"
 METRICS_PATH = backend_dir / "data" / "metrics.json"
@@ -71,6 +72,24 @@ def create_officer_jwt(officer: dict) -> str:
         "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def decode_officer_jwt(authorization: Optional[str]) -> dict:
+    """
+    Validates 'Authorization: Bearer <jwt>' header.
+    Raises HTTPException 401 on missing/invalid token.
+    Returns decoded payload dict.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
+    token = authorization[len("Bearer "):]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @asynccontextmanager
@@ -127,11 +146,12 @@ async def sim_reset():
 class AttackRequest(BaseModel):
     type: str
     difficulty: int = 1
+    total_amount_inr: Optional[int] = None
 
 
 @app.post("/api/sim/attack")
 async def sim_attack(req: AttackRequest):
-    res = engine.launch_attack(req.type, req.difficulty)
+    res = engine.launch_attack(req.type, req.difficulty, total_amount_inr=req.total_amount_inr)
     return res
 
 
@@ -157,6 +177,43 @@ async def get_cluster(cluster_id: str):
     if not c:
         raise HTTPException(status_code=404, detail=f"Cluster {cluster_id} not found")
     return c
+
+
+@app.post("/api/clusters/{cluster_id}/freeze")
+async def freeze_cluster_endpoint(
+    cluster_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Login-protected freeze endpoint:
+    Requires 'Authorization: Bearer <jwt>' with role officer or admin.
+    Freezes all accounts in cluster, blocks pending transfers, pushes 'clear' to Pi,
+    broadcasts 'frozen' to dashboard, and records audit trail.
+    """
+    claims = decode_officer_jwt(authorization)
+    role = claims.get("role")
+    if role not in ("officer", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden: officer or admin role required")
+
+    res = await engine.freeze_cluster(cluster_id, officer=claims)
+    if not res.get("ok"):
+        raise HTTPException(status_code=404, detail=res.get("error", "Cluster not found"))
+    return res
+
+
+# ---------------------------------------------------------------------------
+# Audit Log & Tamper-Evident Verification
+# ---------------------------------------------------------------------------
+@app.get("/api/audit")
+async def get_audit(limit: int = Query(50)):
+    """Returns hash-chained audit log entries."""
+    return list_audit(limit=limit)
+
+
+@app.get("/api/audit/verify")
+async def get_audit_verify():
+    """Cryptographically verifies entire SHA-256 hash chain of the audit log."""
+    return verify_audit()
 
 
 @app.get("/api/accounts/{account_id}")
@@ -337,15 +394,18 @@ async def auth_fingerprint(request: Request, x_signature: Optional[str] = Header
     if not exp or datetime.now(timezone.utc) > exp:
         if ws:
             await ws.send_text(json.dumps({"type": "login_failed", "reason": "expired"}))
+        append_audit("login_failed", {"method": "fingerprint", "challenge_id": challenge_id, "reason": "expired"})
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
 
     officer = get_officer_by_sensor_id(sensor_id)
     if not officer:
         if ws:
             await ws.send_text(json.dumps({"type": "login_failed", "reason": "unknown_finger"}))
+        append_audit("login_failed", {"method": "fingerprint", "challenge_id": challenge_id, "sensor_id": sensor_id, "reason": "unknown_finger"})
         raise HTTPException(status_code=404, detail="Officer not registered")
 
     token = create_officer_jwt(officer)
+    append_audit("login_ok", {"method": "fingerprint", "officer_id": officer["id"], "name": officer["name"], "role": officer["role"]})
     if ws:
         await ws.send_text(json.dumps({
             "type": "login_ok",
@@ -369,9 +429,12 @@ async def auth_password(req: PasswordLoginRequest):
     if req.username == "officer" and req.password == "demo123":
         officer = {"id": "O-1", "name": "Officer A", "role": "officer"}
         token = create_officer_jwt(officer)
+        append_audit("login_ok", {"method": "password", "officer_id": officer["id"], "name": officer["name"], "role": officer["role"]})
         return {"token": token, "officer": officer}
     elif req.username == "admin" and req.password == "admin123":
         officer = {"id": "O-3", "name": "Admin", "role": "admin"}
         token = create_officer_jwt(officer)
+        append_audit("login_ok", {"method": "password", "officer_id": officer["id"], "name": officer["name"], "role": officer["role"]})
         return {"token": token, "officer": officer}
+    append_audit("login_failed", {"method": "password", "username": req.username, "reason": "invalid_credentials"})
     raise HTTPException(status_code=401, detail="Invalid credentials")

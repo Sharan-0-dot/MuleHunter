@@ -405,6 +405,7 @@ def generate_dataset(
 class TransactionStream:
     """
     Streaming iterator that yields transactions in timestamp order.
+    Draws from the SAME code path as generate_dataset (no second implementation).
     Supports dynamic attack injection, clock speed controls, and account freezing.
     """
 
@@ -414,9 +415,13 @@ class TransactionStream:
         speed: float = 1.0,
         start_ts: Optional[datetime] = None,
         frozen_accounts: Optional[Set[str]] = None,
+        chunk_hours: float = 24.0,
     ):
-        self.rng = np.random.default_rng(seed)
+        self.base_seed = seed
+        self.chunk_index = 0
+        self.chunk_hours = chunk_hours
         self.clock = SimulatedClock(start_ts, speed)
+        self.current_chunk_start = self.clock.now()
         self.accounts = generate_accounts_pool()
         self.frozen_accounts = set(frozen_accounts or [])
         self.pending_queue: List[Transaction] = []
@@ -425,6 +430,22 @@ class TransactionStream:
         self.tx_counter = 0
         self.prevented_inr = 0.0
         self.prevented_count = 0
+        # Pre-fill initial chunk
+        self._generate_next_chunk()
+
+    def _generate_next_chunk(self):
+        """Generates the next time chunk using generate_dataset for zero distribution divergence."""
+        chunk_seed = self.base_seed + self.chunk_index
+        self.chunk_index += 1
+        txs, _ = generate_dataset(
+            seed=chunk_seed,
+            duration_hours=self.chunk_hours,
+            attacks=None,
+            start_ts=self.current_chunk_start,
+        )
+        self.pending_queue.extend(txs)
+        self.pending_queue.sort(key=lambda t: t.ts)
+        self.current_chunk_start += timedelta(hours=self.chunk_hours)
 
     def start(self):
         self.clock.start()
@@ -443,9 +464,10 @@ class TransactionStream:
         from app.sim.attacks import inject_attack
 
         ring_id = f"RING-{len(self.ground_truth.rings) + 1:04d}"
+        rng = np.random.default_rng(self.base_seed + 1000 + len(self.ground_truth.rings))
         atk_txs, atk_gt = inject_attack(
             attack_type=attack_type,
-            rng=self.rng,
+            rng=rng,
             accounts=self.accounts,
             start_ts=self.clock.now(),
             difficulty=difficulty,
@@ -469,15 +491,10 @@ class TransactionStream:
     def advance(self, sim_seconds: float) -> List[Transaction]:
         """Advance simulated clock by sim_seconds and return transactions generated in that window."""
         target_ts = self.clock.now() + timedelta(seconds=float(sim_seconds))
-        duration_hours = sim_seconds / 3600.0
 
-        # Generate legit transactions in this window if queue is running low
-        if len(self.pending_queue) < 100:
-            new_legit = _generate_legit_traffic(
-                self.rng, self.accounts, self.clock.now(), max(duration_hours, 1.0)
-            )
-            self.pending_queue.extend(new_legit)
-            self.pending_queue.sort(key=lambda t: t.ts)
+        # If queue doesn't reach target_ts, generate next chunk(s)
+        while not self.pending_queue or self.pending_queue[-1].ts < target_ts:
+            self._generate_next_chunk()
 
         ready_txs = []
         remaining = []
@@ -508,7 +525,6 @@ class TransactionStream:
         return self
 
     def __next__(self) -> Transaction:
-        # Advance by 10 simulated seconds if queue empty
         while not self.pending_queue:
             self.advance(10.0)
 
